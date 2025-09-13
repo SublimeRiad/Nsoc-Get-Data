@@ -14,7 +14,7 @@ Write-Host
 # --- PowerShell Script to run Python and get output ---
 
 # Set the correct path to your Python script
-$pythonScriptPath = "C:\Users\USER\Documents\get_data_usage.py"
+$pythonScriptPath = "get_data_usage.py"
 
 try {
     Write-Host "...Python..."
@@ -180,6 +180,24 @@ $updatePayload = @"
     }
 "@
 
+$CreatePayload = @"
+{
+    "input": 
+        {
+            "id": "",
+            "itemtype": "Computer",
+            "plugin_fields_containers_id": 12,
+            "entities_id": 0,
+            "phonenumberfield": "$($dataObject.msisdn) ",
+            "totaldatafield": "$($dataObject.total_gb) Gb",
+            "dataleftfield": "$($dataObject.left_gb) Gb",
+            "datausedfield": "$($dataObject.used_gb) Gb",
+            "percentfield": "$($dataObject.data_percent) %",
+            "executiontimefield": "$executionTime"
+        }
+    }
+"@
+
 # You can now use $updatePayload in your API call.
 Write-Host "Generated Payload:"
 Write-Host $updatePayload
@@ -189,7 +207,7 @@ Write-Host $updatePayload
         Write-Host "Update completed successfully!"
     } else {
         Write-Warning "No object matching items_id $computerId was found.we will add "
-        $updateResponse = Invoke-RestMethod -Uri "$apiBaseUrl/PluginFieldsComputerdata" -Headers $headers -Method Post -Body ($updatePayload)
+        $updateResponse = Invoke-RestMethod -Uri "$apiBaseUrl/PluginFieldsComputerdata" -Headers $headers -Method Post -Body ($CreatePayload)
 
         Write-Host "Added completed successfully!"
     }
