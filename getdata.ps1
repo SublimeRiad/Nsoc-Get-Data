@@ -208,7 +208,7 @@ Write-Host $CreatePayload
         Write-Host "Update completed successfully!"
     } else {
         Write-Warning "No object matching items_id $computerId was found.we will add "
-        $updateResponse = Invoke-RestMethod -Uri "$putUri" -Headers $headers -Method Post -Body ($CreatePayload)
+        $updateResponse = Invoke-RestMethod -Uri $putUri -Headers $headers -Method Post -Body ($CreatePayload)
 
         Write-Host "Added completed successfully!"
     }
