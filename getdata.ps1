@@ -182,19 +182,19 @@ $updatePayload = @"
 
 $CreatePayload = @"
 {
-    "input": 
+    "input": [
         {
-            "id": "",
+            "items_id": $computerId,
             "itemtype": "Computer",
             "plugin_fields_containers_id": 12,
             "entities_id": 0,
-            "phonenumberfield": "$($dataObject.msisdn) ",
+            "phonenumberfield": "$($dataObject.msisdn)",
             "totaldatafield": "$($dataObject.total_gb) Gb",
             "dataleftfield": "$($dataObject.left_gb) Gb",
             "datausedfield": "$($dataObject.used_gb) Gb",
             "percentfield": "$($dataObject.data_percent) %",
             "executiontimefield": "$executionTime"
-        }
+        }]
     }
 "@
 
@@ -207,7 +207,7 @@ Write-Host $updatePayload
         Write-Host "Update completed successfully!"
     } else {
         Write-Warning "No object matching items_id $computerId was found.we will add "
-        $updateResponse = Invoke-RestMethod -Uri "$apiBaseUrl/PluginFieldsComputerdata" -Headers $headers -Method Post -Body ($CreatePayload)
+        $updateResponse = Invoke-RestMethod -Uri $putUri -Headers $headers -Method Post -Body ($CreatePayload)
 
         Write-Host "Added completed successfully!"
     }
