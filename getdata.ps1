@@ -201,13 +201,14 @@ $CreatePayload = @"
 # You can now use $updatePayload in your API call.
 Write-Host "Generated Payload:"
 Write-Host $updatePayload
+Write-Host $CreatePayload
 
         $updateResponse = Invoke-RestMethod -Uri $putUri -Headers $headers -Method Patch -Body ($updatePayload)
 
         Write-Host "Update completed successfully!"
     } else {
         Write-Warning "No object matching items_id $computerId was found.we will add "
-        $updateResponse = Invoke-RestMethod -Uri $putUri -Headers $headers -Method Post -Body ($CreatePayload)
+        $updateResponse = Invoke-RestMethod -Uri "$putUri" -Headers $headers -Method Post -Body ($CreatePayload)
 
         Write-Host "Added completed successfully!"
     }
