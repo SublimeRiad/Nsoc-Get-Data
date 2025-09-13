@@ -14,7 +14,7 @@ Write-Host
 # --- PowerShell Script to run Python and get output ---
 
 # Set the correct path to your Python script
-$pythonScriptPath = "get_data_usage.py"
+$pythonScriptPath = "C:\Program Files\GLPI-Agent\get_data_usage.py"
 
 try {
     Write-Host "...Python..."
