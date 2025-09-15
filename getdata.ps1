@@ -7,7 +7,7 @@ Write-Host
 "Script Execution Date : $executionTime"
 
 # --- PowerShell Script to run Python and get output ---
-$pythonScriptPath = "C:\Program Files\GLPI-Agent\get_data_usage.py"
+$pythonScriptPath = "C:\Dataupdate\get_data_usage.py"
 
 try {
     Write-Host "...Python..."
