@@ -1,85 +1,54 @@
 # --- Configuration de l'API ---
-$apiBaseUrl = "https://nsoc.aiootech.com/apirest.php"
-# WARNING: Replace with your actual tokens or use a secure management method
-$appToken   = "ig5tWvB2NK5DkEacnySyiNWTjqEHp0calKi7okq7"
-$userToken  = "vGmLoJ74Rs1wlvN9u9zq4bwYnTeKLAeaOpHzdeD6"
+$apiBaseUrl    = "https://nsoc.aiootech.com/apirest.php"
+$appToken      = "ig5tWvB2NK5DkEacnySyiNWTjqEHp0calKi7okq7"
+$userToken     = "vGmLoJ74Rs1wlvN9u9zq4bwYnTeKLAeaOpHzdeD6"
 
-# GLPI Constants verified:
-$computerLiveScreensPluginFieldContainerId = 15 
-$targetGlpiField = "livescreenfield" 
-$executionTimeField = "executiontimefieldtwo"
+Write-Host 
+"Script Execution Date : $executionTime"
 
-# --- Path Configuration ---
-$pythonScriptPath = Join-Path -Path $PSScriptRoot -ChildPath "screeneye.py" 
-# ---
+# --- PowerShell Script to run Python and get output ---
+$pythonScriptPath = "C:\Dataupdate\get_data_usage.py"
 
-Write-Host "Script Execution Date: (Determined by Python)"
-
-# --- Prerequisites: Install Python and Dependencies ---
-$requiredPackages = @("mss", "opencv-python", "numpy", "Pillow")
-$pythonExecutable = "python.exe"
-
-function Install-PythonDependencies {
-    param(
-        [Parameter(Mandatory=$true)]
-        [string[]]$Packages
-    )
-    Write-Host "...Checking for Python and Pip installation..."
-    
-    try {
-        & $pythonExecutable --version | Out-Null
-    } catch {
-        Write-Error "Python not found. Please install it and ensure it's accessible via the PATH environment variable."
-        exit 1
-    }
-
-    Write-Host "...Installing or updating Python dependencies..."
-    foreach ($pkg in $Packages) {
-        Write-Host "Installing $pkg..."
-        try {
-            & $pythonExecutable -m pip install $pkg | Out-Null
-        } catch {
-            Write-Error "Failed to install dependency '$pkg': $($_.Exception.Message)"
-        }
-    }
-}
-
-Install-PythonDependencies -Packages $requiredPackages
-
-# --- Execute Python Script and Capture Raw JSON String ---
-
-$fullJsonOutput = $null
 try {
-    Write-Host "...Executing screeneye.py and capturing JSON output..."
-    $jsonString = & $pythonExecutable $pythonScriptPath
-    $fullJsonOutput = $jsonString | Select-Object -Last 1
+    Write-Host "...Python..."
     
-    if ([string]::IsNullOrEmpty($fullJsonOutput)) {
-        Write-Error "No JSON output received from the Python script."
+    $jsonString = python.exe $pythonScriptPath
+    
+    if ([string]::IsNullOrEmpty($jsonString)) {
+        Write-Error "Aucune sortie JSON reÃ§ue du script Python."
         return
     }
 
-    $dataObject = $fullJsonOutput | ConvertFrom-Json
+    $dataObject = $jsonString | ConvertFrom-Json
     
-    # NOUVEAU: Extraction et formatage du timestamp en heure de DUBAÏ (UTC+4)
-    $pythonTimestamp = $dataObject.timestamp
-    $dateTimeObj = [datetime]::Parse($pythonTimestamp)
+    if ($dataObject.error) {
+        Write-Error "Erreur dÃ©tectÃ©e dans la sortie Python. Message : $($dataObject.message)"
+        return
+    }
     
-    # Conversion en heure de Dubaï (UTC+4)
-    $dubaiTime = $dateTimeObj.ToUniversalTime().AddHours(4)
-    $executionTime = $dubaiTime.ToString('MM/dd/yyyy HH:mm') # Format d'insertion GLPI
-    
-    Write-Host "--- Screen Analysis Result ---"
-    Write-Host "Extracted Status: $($dataObject.status)"
-    Write-Host "Python Timestamp (Dubai Time): $executionTime" # Affichage de l'heure ajustée
+    if (-not $dataObject -or (-not $dataObject.hostname)) {
+        Write-Error "Impossible de convertir la sortie en JSON ou donnÃ©es incomplÃ¨tes."
+        return
+    }
+
+    # --- Use the values ---
+    Write-Host ""
+    Write-Host "--- Data ---"
+    Write-Host "Nom d'hÃ´te  : $($dataObject.hostname)"
+    Write-Host "Phone      : $($dataObject.msisdn)"
+    Write-Host "Total       : $($dataObject.total_gb) GB"
+    Write-Host "UtilisÃ©     : $($dataObject.used_gb) GB"
+    Write-Host "Restant     : $($dataObject.left_gb) GB"
+    Write-Host "Pourcentage : $($dataObject.data_percent) %"
+    Write-Host "----------------------------------------"
 
 } catch {
-    Write-Error "An unexpected error occurred during Python execution: $_"
-    return
+    Write-Error "Une erreur inattendue est survenue : $_"
 }
 
-# --- Step 1: Session-Token Initiation ---
-Write-Host "Step 1: Session-Token Initiation"
+# --- DonnÃ©es Ã  mettre Ã  jour ---
+Write-Host "Ã‰tape 1 : Session-Token Initiation"
+$executionTime = Get-Date -Format 'dd/MM/yyyy HH:mm'
 
 try {
     $initSessionUri = "$apiBaseUrl/initSession"
@@ -87,14 +56,18 @@ try {
         "App-Token"     = $appToken
         "Authorization" = "user_token $userToken"
     }
+
     $sessionResponse = Invoke-RestMethod -Uri $initSessionUri -Headers $initHeaders -Method Get
     $sessionToken = $sessionResponse.session_token
+
     if ([string]::IsNullOrEmpty($sessionToken)) {
-        throw "Failed to retrieve Session-Token."
+        throw "Le Session-Token n'a pas pu Ãªtre rÃ©cupÃ©rÃ©. VÃ©rifie tes jetons d'API."
     }
-    Write-Host "Session-Token retrieved."
+
+    Write-Host "Session-Token : $sessionToken"
+
 } catch {
-    Write-Error "Error during session initialization: $($_.Exception.Message)"
+    Write-Error "Erreur lors de l'initialisation de la session : $($_.Exception.Message)"
     exit
 }
 
@@ -105,105 +78,96 @@ $headers = @{
     "Content-Type"  = "application/json"
 }
 
-# --- Step 2: Retrieve the GLPI Computer ID ---
+# --- Get the local computer's hostname ---
 $currentHostname = $env:COMPUTERNAME
-$computerId = $null
+
 try {
-    Write-Host "Step 2: Searching for the Computer ID for hostname: $currentHostname"
+    Write-Host "Searching for the computer ID for hostname: $currentHostname"
+
     $uriWithFilter = "$apiBaseUrl/search/Computer?forcedisplay[]=2&criteria[0][field]=1&criteria[0][searchtype]=contains&criteria[0][value]=$currentHostname"
     $apiResponse = Invoke-RestMethod -Uri $uriWithFilter -Headers $headers -Method Get
 
     if ($apiResponse.data -and $apiResponse.data.Count -gt 0) {
-        $computerId = $apiResponse.data[0].'2' 
+        $computerData = $apiResponse.data[0]
+        $computerId = $computerData.'2'
+        
         if ($null -ne $computerId) {
-            Write-Host "Computer ID found: $computerId"
+            Write-Host "Computer ID found for hostname '$currentHostname'."
+            Write-Host "ID: $computerId"
         } else {
             Write-Error "The 'ID' property was not found in the API response."
-            exit
         }
     } else {
         Write-Error "No computer found with hostname: $currentHostname"
         exit
     }
 } catch {
-    Write-Error "An error occurred during the API request for the Computer ID: $_"
+    Write-Error "An error occurred during the API request: $_"
     exit
 }
 
-# --- Step 3: Search (GET simple) then Update (PATCH) or Create (POST) ---
-Write-Host "Step 3: Searching for existing entry by simple GET then PATCH or POST..."
+Write-Host "Searching for the object ID for PC $computerId..."
 
-# Échapper le JSON pour l'insérer comme VALEUR de chaîne dans le Payload GLPI
-$escapedJson = $fullJsonOutput -replace '"', '\"'
-
+# --- Step 1: Get all entries and find the object's ID ---
 try {
-    $pluginTableName = "PluginFieldsComputerlivescreen" 
-    $postUri = "$apiBaseUrl/$pluginTableName"
-    
-    # RECHERCHE ROBUSTE (GET simple + filtre PowerShell)
-    Write-Host "🔍 Attempting simple GET: $apiBaseUrl/$pluginTableName"
-    $apiResponse = Invoke-RestMethod -Uri "$apiBaseUrl/$pluginTableName" -Headers $headers -Method Get
-    
-    # Filtrer les résultats par items_id côté PowerShell
+    $apiResponse = Invoke-RestMethod -Uri "$apiBaseUrl/PluginFieldsComputerdata" -Headers $headers -Method Get
     $targetObject = $apiResponse | Where-Object { $_.items_id -eq $computerId}
     
-    $objectId = $null
-    
+    $putUri = "$apiBaseUrl/PluginFieldsComputerdata/$objectId"
+    $postUri = "$apiBaseUrl/PluginFieldsComputerdata"
+
     if ($null -ne $targetObject) {
-        # Objet trouvé: On passe en mode PATCH
         $objectId = $targetObject.id
-    }
+        Write-Host "The found object ID is: $objectId"
+        Write-Host "Updating fields for object ID $objectId..."
 
-    # --- AFFICHAGE DE DÉBOGAGE ---
-    if ($null -ne $objectId) {
-        Write-Host "🔍 Found Plugin Object ID (objectId): $objectId"
-        Write-Host "--- Attempting PATCH (Update existing entry) ---"
-    } else {
-        Write-Warning "🔍 Found Plugin Object ID (objectId): NULL. Will attempt POST (Create new entry)."
-    }
-    # ----------------------------
-
-    if ($null -ne $objectId) {
-        # --- Update (PATCH) ---
-        $putUri = "$apiBaseUrl/$pluginTableName/$objectId"
-        
+        $putUri = "$apiBaseUrl/PluginFieldsComputerdata/$objectId"
         $updatePayload = @"
 {
     "input": {
         "id": $objectId,
         "items_id": $computerId,
-        "itemtype": "Computer",
-        "plugin_fields_containers_id": $computerLiveScreensPluginFieldContainerId,
-        "$targetGlpiField": "$escapedJson",
-        "$executionTimeField": "$executionTime"
+        "phonenumberfield": "$($dataObject.msisdn) ",
+        "totaldatafield": "$($dataObject.total_gb) Gb",
+        "dataleftfield": "$($dataObject.left_gb) Gb",
+        "datausedfield": "$($dataObject.used_gb) Gb",
+        "percentfield": "$($dataObject.data_percent) %",
+        "executiontimefield": "$executionTime"
     }
 }
 "@
-        $updateResponse = Invoke-RestMethod -Uri $putUri -Headers $headers -Method Patch -Body $updatePayload -ContentType 'application/json'
+        Write-Host "Generated Payload for update:"
+        Write-Host $updatePayload
+        $updateResponse = Invoke-RestMethod -Uri $putUri -Headers $headers -Method Patch -Body $updatePayload
 
-        Write-Host "✅ Update (PATCH) completed successfully!"
+        Write-Host "Update completed successfully!"
     } else {
-        # --- Create (POST) ---
+        Write-Warning "No object matching items_id $computerId was found. We will add a new one."
         
         $CreatePayload = @"
 {
     "input": {
         "items_id": $computerId,
         "itemtype": "Computer",
-        "plugin_fields_containers_id": $computerLiveScreensPluginFieldContainerId,
+        "plugin_fields_containers_id": 12,
         "entities_id": 0,
-        "$targetGlpiField": "$escapedJson",
-        "$executionTimeField": "$executionTime"
+        "phonenumberfield": "$($dataObject.msisdn)",
+        "totaldatafield": "$($dataObject.total_gb) Gb",
+        "dataleftfield": "$($dataObject.left_gb) Gb",
+        "datausedfield": "$($dataObject.used_gb) Gb",
+        "percentfield": "$($dataObject.data_percent) %",
+        "executiontimefield": "$executionTime"
     }
 }
 "@
-        $createResponse = Invoke-RestMethod -Uri $postUri -Headers $headers -Method Post -Body $CreatePayload -ContentType 'application/json'
+        Write-Host "Generated Payload for creation:"
+        Write-Host $CreatePayload
+        $createResponse = Invoke-RestMethod -Uri $postUri -Headers $headers -Method Post -Body $CreatePayload
 
-        Write-Host "✅ New entry added successfully (POST)!"
+        Write-Host "New entry added successfully!"
     }
 }
 catch {
-    Write-Error "An error occurred while communicating with the GLPI API (Step 3)."
-    Write-Error "The error likely occurred during the simple GET request, possibly due to reading rights."
+    Write-Error "An error occurred while communicating with the GLPI API."
     Write-Error $_.Exception.Message
 }
