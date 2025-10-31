@@ -110,7 +110,7 @@ Write-Host "Searching for the object ID for PC $computerId..."
 
 # --- Step 1: Get all entries and find the object's ID ---
 try {
-    $apiResponse = Invoke-RestMethod -Uri "$apiBaseUrl/PluginFieldsComputerdata" -Headers $headers -Method Get
+    $apiResponse = Invoke-RestMethod -Uri "$apiBaseUrl/PluginFieldsComputerdata/?range=0-20000" -Headers $headers -Method Get
     $targetObject = $apiResponse | Where-Object { $_.items_id -eq $computerId}
     
     $putUri = "$apiBaseUrl/PluginFieldsComputerdata/$objectId"
