@@ -79,7 +79,7 @@ $headers = @{
 }
 
 # --- Get the local computer's hostname ---
-$currentHostname = $env:COMPUTERNAME
+$currentHostname = $dataObject.hostname
 
 try {
     Write-Host "Searching for the computer ID for hostname: $currentHostname"
