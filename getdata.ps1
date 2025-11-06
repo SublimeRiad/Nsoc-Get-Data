@@ -79,7 +79,7 @@ $headers = @{
 }
 
 # --- Get the local computer's hostname ---
-$currentHostname = $currentHostname = [System.Net.Dns]::GetHostName()
+$currentHostname = [System.Net.Dns]::GetHostName()
 
 try {
     Write-Host "Searching for the computer ID for hostname: $currentHostname"
