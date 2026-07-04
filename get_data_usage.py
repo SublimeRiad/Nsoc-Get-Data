@@ -248,8 +248,10 @@ def glpi_search_computer(hostname):
 def glpi_get_plugin_data(computer_id):
     try:
         r = glpi_request("GET", f"/apirest.php/PluginFieldsComputerdata?items_id={computer_id}")
-        if isinstance(r, list) and len(r) > 0:
-            return r[0]
+        if isinstance(r, list):
+            for item in r:
+                if item.get("items_id") == computer_id:
+                    return item
     except:
         pass
     return None
