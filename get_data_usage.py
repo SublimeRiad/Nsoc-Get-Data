@@ -278,7 +278,7 @@ def main():
     log("=" * 40)
     
     # Install mode?
-    if "--install" in sys.argv or "/install" in sys.argv.lower():
+    if "--install" in sys.argv or any(a.lower() == "/install" for a in sys.argv):
         install_scheduled_task()
         return
     
