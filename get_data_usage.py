@@ -256,33 +256,32 @@ def glpi_get_plugin_data(computer_id):
 
 def glpi_update_plugin(plugin_id, used_gb, total_gb, percent, msisdn=""):
     now = datetime.datetime.now().strftime("%m/%d/%Y %H:%M")
+    left_gb = round(total_gb - used_gb, 2)
     glpi_request("PUT", f"/apirest.php/PluginFieldsComputerdata/{plugin_id}", {
         "input": [{
             "id": plugin_id,
-            "datafield": json.dumps({
-                "total_gb": round(total_gb, 2),
-                "used_gb": round(used_gb, 2),
-                "data_percent": round(percent, 1),
-                "last_check": now
-            }),
+            "totaldatafield": f"{round(total_gb, 2)} Gb",
+            "datausedfield": f"{round(used_gb, 2)} Gb",
+            "dataleftfield": f"{left_gb} Gb",
+            "percentfield": f"{round(percent, 1)} %",
             "executiontimefield": now,
         }]
     })
 
 def glpi_create_plugin(computer_id, used_gb, total_gb, percent, msisdn=""):
     now = datetime.datetime.now().strftime("%m/%d/%Y %H:%M")
+    left_gb = round(total_gb - used_gb, 2)
     glpi_request("POST", "/apirest.php/PluginFieldsComputerdata", {
         "input": [{
             "items_id": computer_id,
             "itemtype": "Computer",
             "plugin_fields_containers_id": 12,
             "entities_id": 0,
-            "datafield": json.dumps({
-                "total_gb": round(total_gb, 2),
-                "used_gb": round(used_gb, 2),
-                "data_percent": round(percent, 1),
-                "last_check": now
-            }),
+            "phonenumberfield": msisdn,
+            "totaldatafield": f"{round(total_gb, 2)} Gb",
+            "datausedfield": f"{round(used_gb, 2)} Gb",
+            "dataleftfield": f"{left_gb} Gb",
+            "percentfield": f"{round(percent, 1)} %",
             "executiontimefield": now,
         }]
     })
