@@ -247,13 +247,21 @@ def glpi_search_computer(hostname):
 
 def glpi_get_plugin_data(computer_id):
     try:
-        r = glpi_request("GET", f"/apirest.php/PluginFieldsComputerdata?items_id={computer_id}")
-        if isinstance(r, list):
+        # GLPI Inventory API paginates: default range=0-49. We need to paginate.
+        start = 0
+        limit = 50
+        while True:
+            r = glpi_request("GET", f"/apirest.php/PluginFieldsComputerdata?range={start}-{start+limit-1}")
+            if not isinstance(r, list) or len(r) == 0:
+                break
             for item in r:
                 if item.get("items_id") == computer_id:
                     return item
-    except:
-        pass
+            if len(r) < limit:
+                break
+            start += limit
+    except Exception as e:
+        debug(f"glpi_get_plugin_data error: {e}")
     return None
 
 def glpi_update_plugin(plugin_id, used_gb, total_gb, percent, msisdn=""):
