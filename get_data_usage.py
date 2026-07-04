@@ -120,13 +120,15 @@ def get_du_usage_with_edge():
         log(f"Page loaded: {len(html)} chars")
         debug(f"HTML snippet: {html[:300]}")
         
-        # Extract data usage using DU portal page structure
-        # Try pattern: "Used X.XX GB out of Y.YY GB" or "X.XX GB / Y.YY GB"
-        usage_match = re.search(r"(\d+[\.,]?\d*)\s*[Gg][Bb]\s*[oO][uU][tT]\s*[oO][fF]\s*(\d+[\.,]?\d*)\s*[Gg][Bb]", html)
+        # Extract data usage - format: "1.85 GB/15.00 GB" or similar
+        # Find any pattern like "X.XX GB / Y.YY GB" with any whitespace
+        usage_match = re.search(r"(\d+[\.,]?\d*)\s*[Gg][Bb]\s*[\s]*/\s*(\d+[\.,]?\d*)\s*[Gg][Bb]", html)
         if not usage_match:
-            usage_match = re.search(r"(\d+[\.,]?\d*)\s*GB\s*/\s*(\d+[\.,]?\d*)\s*GB", html)
+            # Try "X.XXGB / Y.YYGB" without spaces
+            usage_match = re.search(r"(\d+[\.,]?\d*)[Gg][Bb]\s*/\s*(\d+[\.,]?\d*)[Gg][Bb]", html)
         if not usage_match:
-            usage_match = re.search(r"(?:used|Used|USED)\s*(\d+[\.,]?\d*)\s*[Gg][Bb]", html)
+            # Try "X.XX / Y.YY GB" where context is data usage
+            usage_match = re.search(r"(\d+[\.,]?\d*)\s*/\s*(\d+[\.,]?\d*)\s*[Gg][Bb]", html)
             if usage_match:
                 # Also find total
                 total_match = re.search(r"(?:out of|Total|total)\s*(\d+[\.,]?\d*)\s*[Gg][Bb]", html)
