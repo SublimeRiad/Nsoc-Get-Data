@@ -434,7 +434,7 @@ def main():
             "status": du_data["status"],
         }, indent=2))
     
-    log("Done ✓")
+    log("Done OK")
 
 
 if __name__ == "__main__":
