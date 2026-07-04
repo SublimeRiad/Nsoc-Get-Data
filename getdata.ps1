@@ -1,5 +1,7 @@
 # NSOC Data Usage Collector — PowerShell launcher
-# Usage: powershell -ExecutionPolicy Bypass -File getdata.ps1
+# Usage: powershell -ExecutionPolicy Bypass -File getdata.ps1 [-verbose]
+param([switch]$verbose)
+
 Write-Host "NSOC Data Usage Collector"
 Write-Host "========================="
 Write-Host ""
@@ -16,16 +18,16 @@ if (-not $python) {
 }
 
 # Run the script
-Write-Host "Running data collection..."
-python.exe $PyScript --silent
-
-if ($LASTEXITCODE -eq 0) {
-    Write-Host "✓ Data collection complete"
+if ($verbose) {
+    Write-Host "Running in verbose mode..."
+    python.exe $PyScript
 } else {
-    Write-Error "✗ Script failed with exit code $LASTEXITCODE"
+    Write-Host "Running data collection..."
+    python.exe $PyScript --silent
 }
 
-# For testing: run with verbose output
-if ($args -contains "-verbose") {
-    python.exe $PyScript
+if ($LASTEXITCODE -eq 0) {
+    Write-Host " Done - data collection complete"
+} else {
+    Write-Error "Script failed with exit code $LASTEXITCODE"
 }
