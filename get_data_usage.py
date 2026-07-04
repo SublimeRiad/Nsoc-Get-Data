@@ -254,7 +254,7 @@ def glpi_get_plugin_data(computer_id):
         pass
     return None
 
-def glpi_update_plugin(plugin_id, used_gb, total_gb, percent):
+def glpi_update_plugin(plugin_id, used_gb, total_gb, percent, msisdn=""):
     now = datetime.datetime.now().strftime("%m/%d/%Y %H:%M")
     glpi_request("PUT", f"/apirest.php/PluginFieldsComputerdata/{plugin_id}", {
         "datafield": json.dumps({
@@ -266,7 +266,7 @@ def glpi_update_plugin(plugin_id, used_gb, total_gb, percent):
         "executiontimefield": now,
     })
 
-def glpi_create_plugin(computer_id, used_gb, total_gb, percent):
+def glpi_create_plugin(computer_id, used_gb, total_gb, percent, msisdn=""):
     now = datetime.datetime.now().strftime("%m/%d/%Y %H:%M")
     glpi_request("POST", "/apirest.php/PluginFieldsComputerdata", {
         "items_id": computer_id,
