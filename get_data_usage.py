@@ -271,7 +271,7 @@ def glpi_create_plugin(computer_id, used_gb, total_gb, percent, msisdn=""):
     glpi_request("POST", "/apirest.php/PluginFieldsComputerdata", {
         "items_id": computer_id,
         "itemtype": "Computer",
-        "plugin_fields_containers_id": 14,
+        "plugin_fields_containers_id": 12,
         "entities_id": 0,
         "datafield": json.dumps({
             "total_gb": round(total_gb, 2),
