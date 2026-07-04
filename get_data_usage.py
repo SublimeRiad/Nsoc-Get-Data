@@ -120,28 +120,41 @@ def get_du_usage_with_edge():
         log(f"Page loaded: {len(html)} chars")
         debug(f"HTML snippet: {html[:300]}")
         
-        # Extract data usage using regex (same as original script)
-        # Look for patterns like "X.XX GB / Y.YY GB"
-        usage_match = re.search(r"(\d+[\.,]?\d*)\s*GB\s*/\s*(\d+[\.,]?\d*)\s*GB", html, re.IGNORECASE)
-        
-        # Also try "Used XX% of XX GB" or other DU formats
+        # Extract data usage using DU portal page structure
+        # Try pattern: "Used X.XX GB out of Y.YY GB" or "X.XX GB / Y.YY GB"
+        usage_match = re.search(r"(\d+[\.,]?\d*)\s*[Gg][Bb]\s*[oO][uU][tT]\s*[oO][fF]\s*(\d+[\.,]?\d*)\s*[Gg][Bb]", html)
         if not usage_match:
-            usage_match = re.search(r"data-percent[^>]*>([^<]+)", html)
+            usage_match = re.search(r"(\d+[\.,]?\d*)\s*GB\s*/\s*(\d+[\.,]?\d*)\s*GB", html)
+        if not usage_match:
+            usage_match = re.search(r"(?:used|Used|USED)\s*(\d+[\.,]?\d*)\s*[Gg][Bb]", html)
             if usage_match:
-                percent_str = usage_match.group(1).replace("%", "").strip()
-                output["data_percent"] = float(percent_str) if percent_str else 0
-                output["used_gb"] = 0  # Will be estimated
-                output["total_gb"] = 0
-                output["status"] = "partial" if output["data_percent"] > 0 else "failed"
-                return output
-        
+                # Also find total
+                total_match = re.search(r"(?:out of|Total|total)\s*(\d+[\.,]?\d*)\s*[Gg][Bb]", html)
+                if total_match:
+                    # Handle case where used/total are separate matches
+                    used = float(usage_match.group(1).replace(",", "."))
+                    total = float(total_match.group(1).replace(",", "."))
+                    output["used_gb"] = used
+                    output["total_gb"] = total
+                    output["left_gb"] = round(total - used, 2)
+                    output["data_percent"] = round((used / total) * 100, 2) if total > 0 else 0
+                    output["status"] = "success"
+                    log(f"Data: {used}GB / {total}GB ({output['data_percent']}%)")
+                    return output
         if not usage_match:
-            # Try to find any number pattern near "GB"
-            alt_match = re.search(r"(\d+[\.,]?\d*)\s*[Gg][Bb]", html)
-            if alt_match:
-                output["total_gb"] = float(alt_match.group(1).replace(",", "."))
-                output["status"] = "partial"
-                log(f"Partial data: {output['total_gb']}GB")
+            # Try percentage pattern
+            pct_match = re.search(r"(\d+[\.,]?\d*)\s*%", html)
+            if pct_match:
+                output["data_percent"] = float(pct_match.group(1).replace(",", "."))
+                # Find any GB number for total
+                gb_match = re.findall(r"(\d+[\.,]?\d*)\s*[Gg][Bb]", html)
+                if gb_match:
+                    output["total_gb"] = float(gb_match[-1].replace(",", "."))
+                    output["used_gb"] = round(output["total_gb"] * output["data_percent"] / 100, 2)
+                    output["left_gb"] = round(output["total_gb"] - output["used_gb"], 2)
+                    output["status"] = "success"
+                    log(f"Data (from %): {output['used_gb']}GB / {output['total_gb']}GB ({output['data_percent']}%)")
+                    return output
         
         if usage_match:
             used_raw = usage_match.group(1).replace(",", ".")
