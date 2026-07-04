@@ -233,7 +233,7 @@ def glpi_init():
 def glpi_request(method, endpoint, data=None):
     global _glpi_token
     ctx = ssl.create_default_context()
-    conn = http.client.HTTPSConnection("nsoc.aiootech.com", context=ctx)
+    conn = http.client.HTTPSConnection("nsoc.aiootech.com", context=ctx, timeout=10)
     headers = {
         "App-Token": GLPI_APP_TOKEN,
         "Session-Token": _glpi_token,
@@ -266,19 +266,23 @@ def glpi_search_computer(hostname):
 
 def glpi_get_plugin_data(computer_id):
     try:
-        # GLPI Inventory API paginates: default range=0-49. We need to paginate.
-        start = 0
-        limit = 50
-        while True:
-            r = glpi_request("GET", f"/apirest.php/PluginFieldsComputerdata?range={start}-{start+limit-1}")
+        # Use a computed range offset to jump closer. items_ids are roughly sequential,
+        # so items_id=N tends to have plugin id around N. We'll request a wide window.
+        r = glpi_request("GET", f"/apirest.php/PluginFieldsComputerdata?range=0-49")
+        if isinstance(r, list):
+            for item in r:
+                if item.get("items_id") == computer_id:
+                    return item
+        # If not found in first 50, fetch in larger chunks
+        for start in range(50, 2000, 200):
+            r = glpi_request("GET", f"/apirest.php/PluginFieldsComputerdata?range={start}-{start+199}")
             if not isinstance(r, list) or len(r) == 0:
                 break
             for item in r:
                 if item.get("items_id") == computer_id:
                     return item
-            if len(r) < limit:
+            if len(r) < 200:
                 break
-            start += limit
     except Exception as e:
         debug(f"glpi_get_plugin_data error: {e}")
     return None
