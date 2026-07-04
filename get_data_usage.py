@@ -36,6 +36,25 @@ def debug(msg):
 # 1. EDGE WEBDRIVER SCRAPER
 # ═══════════════════════════════════════════
 
+def _extract_phone(html):
+    """Extract phone number from DU portal page HTML."""
+    # Try various formats: +971581585311, +971 58 158 5311, 0581585311, etc.
+    patterns = [
+        r"\+971[\s-]?\d[\s-]?\d[\s-]?\d[\s-]?\d[\s-]?\d[\s-]?\d[\s-]?\d[\s-]?\d[\s-]?\d",
+        r"0?5[\s-]?\d[\s-]?\d[\s-]?\d[\s-]?\d[\s-]?\d[\s-]?\d[\s-]?\d[\s-]?\d",
+        r"(?:05|5)\d{8}",
+    ]
+    for p in patterns:
+        m = re.search(p, html)
+        if m:
+            num = re.sub(r"[\s-]", "", m.group(0))
+            if num.startswith("0"):
+                num = "+971" + num[1:]
+            elif num.startswith("5"):
+                num = "+971" + num
+            return num
+    return ""
+
 def get_du_usage_with_edge():
     """
     Use Microsoft Edge (msedgedriver) in headless mode to scrape mydata.du.ae.
@@ -170,10 +189,10 @@ def get_du_usage_with_edge():
             output["status"] = "success"
             log(f"Data: {used}GB / {total}GB ({output['data_percent']}%)")
         
-        # Try phone number extraction
-        phone_match = re.search(r"\+971[\s-]?\d+", html)
-        if phone_match:
-            output["msisdn"] = phone_match.group(0)
+        # Try phone number extraction (before any early return)
+        extracted_phone = _extract_phone(html)
+        if extracted_phone:
+            output["msisdn"] = extracted_phone
             log(f"Phone: {output['msisdn']}")
         
         if usage_match:
