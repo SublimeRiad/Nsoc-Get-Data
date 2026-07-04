@@ -162,6 +162,12 @@ def get_du_usage_with_edge():
                     output["status"] = "success"
                     log(f"Data: {used}GB / {total}GB ({output['data_percent']}%)")
                     return output
+        # Try phone number extraction FIRST (before any early return)
+        extracted_phone = _extract_phone(html)
+        if extracted_phone:
+            output["msisdn"] = extracted_phone
+            log(f"Phone: {output['msisdn']}")
+        
         if not usage_match:
             # Try percentage pattern
             pct_match = re.search(r"(\d+[\.,]?\d*)\s*%", html)
@@ -188,12 +194,6 @@ def get_du_usage_with_edge():
             output["data_percent"] = round((used / total) * 100, 2) if total > 0 else 0
             output["status"] = "success"
             log(f"Data: {used}GB / {total}GB ({output['data_percent']}%)")
-        
-        # Try phone number extraction (before any early return)
-        extracted_phone = _extract_phone(html)
-        if extracted_phone:
-            output["msisdn"] = extracted_phone
-            log(f"Phone: {output['msisdn']}")
         
         if usage_match:
             return output
