@@ -405,10 +405,10 @@ def main():
     try:
         existing = glpi_get_plugin_data(computer_id)
         if existing and existing.get("id"):
-            glpi_update_plugin(existing["id"], du_data["used_gb"], du_data["total_gb"], du_data["data_percent"])
+            glpi_update_plugin(existing["id"], du_data["used_gb"], du_data["total_gb"], du_data["data_percent"], du_data.get("msisdn", ""))
             log(f"Updated plugin field #{existing['id']}")
         else:
-            glpi_create_plugin(computer_id, du_data["used_gb"], du_data["total_gb"], du_data["data_percent"])
+            glpi_create_plugin(computer_id, du_data["used_gb"], du_data["total_gb"], du_data["data_percent"], du_data.get("msisdn", ""))
             log("Created new plugin field entry")
     except Exception as e:
         log(f"GLPI update failed: {e}")
