@@ -137,67 +137,70 @@ def get_du_usage_with_edge():
             html = result.stdout
         
         log(f"Page loaded: {len(html)} chars")
-        debug(f"HTML snippet: {html[:300]}")
+        debug(f"HTML snippet: {html[:500]}")
         
-        # Extract data usage - format: "1.85 GB/15.00 GB" or similar
-        # Find any pattern like "X.XX GB / Y.YY GB" with any whitespace
-        usage_match = re.search(r"(\d+[\.,]?\d*)\s*[Gg][Bb]\s*[\s]*/\s*(\d+[\.,]?\d*)\s*[Gg][Bb]", html)
-        if not usage_match:
-            # Try "X.XXGB / Y.YYGB" without spaces
-            usage_match = re.search(r"(\d+[\.,]?\d*)[Gg][Bb]\s*/\s*(\d+[\.,]?\d*)[Gg][Bb]", html)
-        if not usage_match:
-            # Try "X.XX / Y.YY GB" where context is data usage
-            usage_match = re.search(r"(\d+[\.,]?\d*)\s*/\s*(\d+[\.,]?\d*)\s*[Gg][Bb]", html)
-            if usage_match:
-                # Also find total
-                total_match = re.search(r"(?:out of|Total|total)\s*(\d+[\.,]?\d*)\s*[Gg][Bb]", html)
-                if total_match:
-                    # Handle case where used/total are separate matches
-                    used = float(usage_match.group(1).replace(",", "."))
-                    total = float(total_match.group(1).replace(",", "."))
-                    output["used_gb"] = used
-                    output["total_gb"] = total
-                    output["left_gb"] = round(total - used, 2)
-                    output["data_percent"] = round((used / total) * 100, 2) if total > 0 else 0
-                    output["status"] = "success"
-                    log(f"Data: {used}GB / {total}GB ({output['data_percent']}%)")
-                    return output
-        # Try phone number extraction FIRST (before any early return)
+        # Try phone number extraction
         extracted_phone = _extract_phone(html)
         if extracted_phone:
             output["msisdn"] = extracted_phone
             log(f"Phone: {output['msisdn']}")
         
-        if not usage_match:
-            # Try percentage pattern
-            pct_match = re.search(r"(\d+[\.,]?\d*)\s*%", html)
-            if pct_match:
-                output["data_percent"] = float(pct_match.group(1).replace(",", "."))
-                # Find any GB number for total
-                gb_match = re.findall(r"(\d+[\.,]?\d*)\s*[Gg][Bb]", html)
-                if gb_match:
-                    output["total_gb"] = float(gb_match[-1].replace(",", "."))
-                    output["used_gb"] = round(output["total_gb"] * output["data_percent"] / 100, 2)
-                    output["left_gb"] = round(output["total_gb"] - output["used_gb"], 2)
-                    output["status"] = "success"
-                    log(f"Data (from %): {output['used_gb']}GB / {output['total_gb']}GB ({output['data_percent']}%)")
-                    return output
+        # Collect ALL GB numbers from the page
+        all_gb = re.findall(r"(\d+[\.,]?\d*)\s*[Gg][Bb]", html)
+        debug(f"All GB numbers found: {all_gb}")
         
-        if usage_match:
-            used_raw = usage_match.group(1).replace(",", ".")
-            total_raw = usage_match.group(2).replace(",", ".")
-            used = float(used_raw)
-            total = float(total_raw)
-            output["used_gb"] = used
-            output["total_gb"] = total
-            output["left_gb"] = round(total - used, 2)
-            output["data_percent"] = round((used / total) * 100, 2) if total > 0 else 0
-            output["status"] = "success"
-            log(f"Data: {used}GB / {total}GB ({output['data_percent']}%)")
+        gb_values = []
+        for g in all_gb:
+            try:
+                val = float(g.replace(",", ""))
+                gb_values.append(val)
+            except ValueError:
+                pass
         
-        if usage_match:
-            return output
+        gb_values = sorted(gb_values)
+        debug(f"Sorted GB values: {gb_values}")
+        # Logic: smallest value = used data, find the plan total (1-500 GB)
+        if len(gb_values) >= 2:
+            used_gb_val = min(gb_values)
+            
+            total_gb_val = None
+            for v in gb_values:
+                if 1 <= v <= 500 and v > used_gb_val:
+                    total_gb_val = v
+                    break
+            
+            if total_gb_val is None:
+                candidates = [v for v in gb_values if v > used_gb_val and v < 50000]
+                if candidates:
+                    total_gb_val = min(candidates)
+                else:
+                    larger = [v for v in gb_values if v > used_gb_val]
+                    if larger:
+                        total_gb_val = min(larger)
+            
+            if total_gb_val:
+                output["used_gb"] = round(used_gb_val, 2)
+                output["total_gb"] = round(total_gb_val, 2)
+                output["left_gb"] = round(total_gb_val - used_gb_val, 2)
+                output["data_percent"] = round((used_gb_val / total_gb_val) * 100, 2) if total_gb_val > 0 else 0
+                output["status"] = "success"
+                log(f"Data: {output['used_gb']}GB / {output['total_gb']}GB ({output['data_percent']}%)")
+                return output
         
+        # Fallback: percentage
+        log("GB number matching failed, trying percentage...")
+        pct_match = re.search(r"(\d+[\.,]?\d*)\s*%", html)
+        if pct_match and gb_values:
+            output["data_percent"] = float(pct_match.group(1).replace(",", "."))
+            output["used_gb"] = min(gb_values)
+            if output["data_percent"] > 0:
+                output["total_gb"] = round(output["used_gb"] / (output["data_percent"] / 100), 2)
+                output["left_gb"] = round(output["total_gb"] - output["used_gb"], 2)
+                output["status"] = "success"
+                log(f"Data (from %): {output['used_gb']}GB / {output['total_gb']}GB ({output['data_percent']}%)")
+                return output
+        
+        log("Could not parse data usage from DU page")
         return output
         
     except subprocess.TimeoutExpired:
@@ -377,16 +380,38 @@ def get_du_usage_playwright():
             
             result = {"hostname": platform.node(), "msisdn": "", "total_gb": 0, "used_gb": 0, "left_gb": 0, "data_percent": 0, "status": "failed"}
             
-            usage_match = re.search(r"(\d+[\.,]?\d*)\s*GB\s*/\s*(\d+[\.,]?\d*)\s*GB", text)
             phone_match = re.search(r"\+971\s?\d+", text)
-            
             if phone_match:
                 result["msisdn"] = phone_match.group(0)
             
-            if usage_match:
-                used = float(usage_match.group(1).replace(",", "."))
-                total = float(usage_match.group(2).replace(",", "."))
-                result.update({"used_gb": used, "total_gb": total, "left_gb": round(total - used, 2), "data_percent": round((used / total) * 100, 2) if total > 0 else 0, "status": "success"})
+            # Collect all GB numbers
+            all_gb = re.findall(r"(\d+[\.,]?\d*)\s*GB", text, re.IGNORECASE)
+            gb_values = []
+            for g in all_gb:
+                try:
+                    val = float(g.replace(",", ""))
+                    gb_values.append(val)
+                except ValueError:
+                    pass
+            gb_values = sorted(gb_values)
+            
+            if len(gb_values) >= 2:
+                used_gb_val = min(gb_values)
+                total_gb_val = None
+                for v in gb_values:
+                    if 1 <= v <= 500 and v > used_gb_val:
+                        total_gb_val = v
+                        break
+                if total_gb_val is None:
+                    larger = [v for v in gb_values if v > used_gb_val]
+                    if larger:
+                        total_gb_val = min(larger)
+                if total_gb_val:
+                    result["used_gb"] = round(used_gb_val, 2)
+                    result["total_gb"] = round(total_gb_val, 2)
+                    result["left_gb"] = round(total_gb_val - used_gb_val, 2)
+                    result["data_percent"] = round((used_gb_val / total_gb_val) * 100, 2) if total_gb_val > 0 else 0
+                    result["status"] = "success"
             
             browser.close()
             return result
