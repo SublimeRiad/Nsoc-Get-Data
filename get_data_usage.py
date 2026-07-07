@@ -438,13 +438,15 @@ def main():
     
     if du_data["status"] in ("success", "partial"):
         log(f"Edge result: {du_data['used_gb']}GB / {du_data['total_gb']}GB ({du_data['data_percent']}%)")
-    elif du_data["status"] == "no_edge":
-        log("Edge not available, trying Playwright fallback...")
+    
+    if du_data["status"] != "success":
+        # Edge didn't work, try Playwright as fallback
+        log("Edge failed, trying Playwright fallback...")
         du_data = get_du_usage_playwright()
         if du_data["status"] == "success":
             log(f"Playwright result: {du_data['used_gb']}GB / {du_data['total_gb']}GB")
-    else:
-        log(f"Scrape failed: {du_data['status']}")
+        else:
+            log(f"Both Edge and Playwright failed: {du_data['status']}")
     
     # Step 4: Update GLPI — delete existing entries then create fresh
     log("Updating GLPI custom fields...")
