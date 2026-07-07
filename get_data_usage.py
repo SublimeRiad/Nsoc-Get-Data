@@ -444,12 +444,15 @@ def main():
         # Search for existing entries by computer_id
         existing_entries = glpi_search_plugin_by_items_id(computer_id)
         if existing_entries:
-            # Delete all existing entries for this computer_id
+            count = len(existing_entries)
+            log(f"Found {count} existing entry/entries for computer #{computer_id}, deleting...")
             for entry in existing_entries:
                 entry_id = entry.get("id") or entry.get("3")
                 if entry_id:
                     log(f"Deleting existing plugin field #{entry_id} (items_id={computer_id})...")
                     glpi_delete_plugin(entry_id)
+        else:
+            log(f"No existing entries found for computer #{computer_id}, creating fresh...")
         
         # Always create fresh entry
         glpi_create_plugin(computer_id, du_data["used_gb"], du_data["total_gb"], du_data["data_percent"], du_data.get("msisdn", ""))
