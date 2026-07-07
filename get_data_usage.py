@@ -267,17 +267,25 @@ def glpi_search_computer(hostname):
 def glpi_search_plugin_by_items_id(computer_id):
     """
     Search for existing PluginFieldsComputerdata entries by items_id.
-    Returns a list of matching entries.
-    Uses direct items_id filter in URL (not criteria).
+    Fetches in small batches and filters locally because GLPI API doesn't
+    support items_id as a filter parameter on GET PluginFieldsComputerdata.
     """
+    matches = []
     try:
-        # items_id is a filter parameter directly, not a criteria field
-        r = glpi_request("GET", f"/apirest.php/PluginFieldsComputerdata?items_id={computer_id}")
-        if isinstance(r, list) and len(r) > 0:
-            return r
+        # Fetch in small ranges to avoid timeout, filter locally by items_id
+        for start in range(0, 2000, 50):
+            r = glpi_request("GET", f"/apirest.php/PluginFieldsComputerdata?range={start}-{start+49}")
+            if not isinstance(r, list) or len(r) == 0:
+                break
+            for item in r:
+                entry_items_id = item.get("items_id") or item.get("2") or item.get("1")
+                if entry_items_id == computer_id:
+                    matches.append(item)
+            if len(r) < 50:
+                break
     except Exception as e:
         debug(f"glpi_search_plugin_by_items_id error: {e}")
-    return []
+    return matches
 
 def glpi_delete_plugin(plugin_id):
     """Delete a PluginFieldsComputerdata entry by its own ID."""
