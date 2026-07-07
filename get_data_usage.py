@@ -101,7 +101,7 @@ def get_du_usage_with_edge():
         # Edge --headless --virtual-time-budget=15000 http://mydata.du.ae --dump-dom
         cmd = [
             edge_path,
-            "--headless",
+            "--headless=new",
             "--disable-gpu",
             "--no-sandbox",
             "--disable-software-rasterizer",
@@ -125,7 +125,7 @@ def get_du_usage_with_edge():
             
             cmd = [
                 edge_path,
-                "--headless",
+                "--headless=new",
                 "--disable-gpu",
                 "--no-sandbox",
                 f"--user-data-dir={user_data_dir}",
