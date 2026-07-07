@@ -273,7 +273,7 @@ def glpi_search_plugin_by_items_id(computer_id):
     matches = []
     try:
         # Fetch in small ranges to avoid timeout, filter locally by items_id
-        for start in range(0, 2000, 50):
+        for start in range(0, 20000, 50):
             r = glpi_request("GET", f"/apirest.php/PluginFieldsComputerdata?range={start}-{start+49}")
             if not isinstance(r, list) or len(r) == 0:
                 break
