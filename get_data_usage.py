@@ -264,28 +264,34 @@ def glpi_search_computer(hostname):
         return r["data"][0].get("2"), r["data"][0].get("1", "")
     return None, None
 
-def glpi_get_plugin_data(computer_id):
+def glpi_search_plugin_by_items_id(computer_id):
+    """
+    Search for existing PluginFieldsComputerdata entries by items_id.
+    Returns a list of matching entries (could be multiple).
+    Uses API search with criteria filter instead of pagination scrolling.
+    """
     try:
-        # Use a computed range offset to jump closer. items_ids are roughly sequential,
-        # so items_id=N tends to have plugin id around N. We'll request a wide window.
-        r = glpi_request("GET", f"/apirest.php/PluginFieldsComputerdata?range=0-49")
-        if isinstance(r, list):
-            for item in r:
-                if item.get("items_id") == computer_id:
-                    return item
-        # If not found in first 50, fetch in larger chunks
-        for start in range(50, 2000, 200):
-            r = glpi_request("GET", f"/apirest.php/PluginFieldsComputerdata?range={start}-{start+199}")
-            if not isinstance(r, list) or len(r) == 0:
-                break
-            for item in r:
-                if item.get("items_id") == computer_id:
-                    return item
-            if len(r) < 200:
-                break
+        params = urllib.parse.urlencode({
+            "criteria[0][field]": "2",  # items_id field
+            "criteria[0][searchtype]": "equals",
+            "criteria[0][value]": computer_id,
+            "range": "0-999",
+        })
+        r = glpi_request("GET", f"/apirest.php/PluginFieldsComputerdata?{params}")
+        if isinstance(r, list) and len(r) > 0:
+            return r
     except Exception as e:
-        debug(f"glpi_get_plugin_data error: {e}")
-    return None
+        debug(f"glpi_search_plugin_by_items_id error: {e}")
+    return []
+
+def glpi_delete_plugin(plugin_id):
+    """Delete a PluginFieldsComputerdata entry by its own ID."""
+    try:
+        glpi_request("DELETE", f"/apirest.php/PluginFieldsComputerdata/{plugin_id}")
+        return True
+    except Exception as e:
+        log(f"Delete plugin #{plugin_id} failed: {e}")
+        return False
 
 def glpi_update_plugin(plugin_id, used_gb, total_gb, percent, msisdn=""):
     now = datetime.datetime.now().strftime("%m/%d/%Y %H:%M")
@@ -437,16 +443,22 @@ def main():
     else:
         log(f"Scrape failed: {du_data['status']}")
     
-    # Step 4: Update GLPI
+    # Step 4: Update GLPI — delete existing entries then create fresh
     log("Updating GLPI custom fields...")
     try:
-        existing = glpi_get_plugin_data(computer_id)
-        if existing and existing.get("id"):
-            glpi_update_plugin(existing["id"], du_data["used_gb"], du_data["total_gb"], du_data["data_percent"], du_data.get("msisdn", ""))
-            log(f"Updated plugin field #{existing['id']}")
-        else:
-            glpi_create_plugin(computer_id, du_data["used_gb"], du_data["total_gb"], du_data["data_percent"], du_data.get("msisdn", ""))
-            log("Created new plugin field entry")
+        # Search for existing entries by computer_id
+        existing_entries = glpi_search_plugin_by_items_id(computer_id)
+        if existing_entries:
+            # Delete all existing entries for this computer_id
+            for entry in existing_entries:
+                entry_id = entry.get("id") or entry.get("3")
+                if entry_id:
+                    log(f"Deleting existing plugin field #{entry_id} (items_id={computer_id})...")
+                    glpi_delete_plugin(entry_id)
+        
+        # Always create fresh entry
+        glpi_create_plugin(computer_id, du_data["used_gb"], du_data["total_gb"], du_data["data_percent"], du_data.get("msisdn", ""))
+        log("Created new plugin field entry")
     except Exception as e:
         log(f"GLPI update failed: {e}")
         sys.exit(1)
