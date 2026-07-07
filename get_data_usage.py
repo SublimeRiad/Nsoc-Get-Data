@@ -233,7 +233,7 @@ def glpi_init():
 def glpi_request(method, endpoint, data=None):
     global _glpi_token
     ctx = ssl.create_default_context()
-    conn = http.client.HTTPSConnection("nsoc.aiootech.com", context=ctx, timeout=10)
+    conn = http.client.HTTPSConnection("nsoc.aiootech.com", context=ctx, timeout=30)
     headers = {
         "App-Token": GLPI_APP_TOKEN,
         "Session-Token": _glpi_token,
