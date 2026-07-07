@@ -310,10 +310,10 @@ def glpi_update_plugin(plugin_id, used_gb, total_gb, percent, msisdn=""):
         }]
     })
 
-def glpi_create_plugin(computer_id, used_gb, total_gb, percent, msisdn=""):
+def glpi_create_plugin(computer_id, used_gb, total_gb, percent, msisdn="", comment=""):
     now = datetime.datetime.now().strftime("%m/%d/%Y %H:%M")
     left_gb = round(total_gb - used_gb, 2)
-    glpi_request("POST", "/apirest.php/PluginFieldsComputerdata", {
+    payload = {
         "input": [{
             "items_id": computer_id,
             "itemtype": "Computer",
@@ -326,7 +326,10 @@ def glpi_create_plugin(computer_id, used_gb, total_gb, percent, msisdn=""):
             "percentfield": f"{round(percent, 1)} %",
             "executiontimefield": now,
         }]
-    })
+    }
+    if comment:
+        payload["input"][0]["commentsfield"] = comment
+    glpi_request("POST", "/apirest.php/PluginFieldsComputerdata", payload)
 
 
 # ═══════════════════════════════════════════
@@ -448,6 +451,11 @@ def main():
         else:
             log(f"Both Edge and Playwright failed: {du_data['status']}")
     
+    # Determine comment if Playwright is missing
+    comment = ""
+    if du_data["status"] == "no_playwright":
+        comment = "Need Playwright and Chromium"
+    
     # Step 4: Update GLPI — delete existing entries then create fresh
     log("Updating GLPI custom fields...")
     try:
@@ -465,7 +473,7 @@ def main():
             log(f"No existing entries found for computer #{computer_id}, creating fresh...")
         
         # Always create fresh entry
-        glpi_create_plugin(computer_id, du_data["used_gb"], du_data["total_gb"], du_data["data_percent"], du_data.get("msisdn", ""))
+        glpi_create_plugin(computer_id, du_data["used_gb"], du_data["total_gb"], du_data["data_percent"], du_data.get("msisdn", ""), comment)
         log("Created new plugin field entry")
     except Exception as e:
         log(f"GLPI update failed: {e}")
