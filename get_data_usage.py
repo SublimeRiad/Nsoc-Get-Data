@@ -391,8 +391,15 @@ def get_du_usage_playwright():
             browser.close()
             return result
     except ImportError:
-        log("Playwright not installed")
-        return {"hostname": platform.node(), "status": "no_playwright", "message": "Install playwright: pip install playwright && playwright install chromium"}
+        log("Playwright package not installed")
+        return {"hostname": platform.node(), "status": "no_playwright", "message": "Playwright package not installed"}
+    except Exception as e:
+        err = str(e)
+        if "Executable doesn't exist" in err or "playwright install" in err:
+            log("Chromium not installed for Playwright")
+            return {"hostname": platform.node(), "status": "no_playwright", "message": "Chromium not installed for Playwright"}
+        log(f"Playwright error: {e}")
+        return {"hostname": platform.node(), "status": "no_playwright", "message": str(e)}
 
 
 # ═══════════════════════════════════════════
