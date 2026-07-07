@@ -30,4 +30,96 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host " Done - data collection complete"
 } else {
     Write-Error "Script failed with exit code $LASTEXITCODE"
+    
+    # Check if it's a Playwright/Chromium issue and write comment to GLPI
+    $hostname = $env:COMPUTERNAME
+    Write-Host "Attempting to write 'Need Playwright and Chromium' comment to GLPI for $hostname..."
+    
+    $tokenBody = @{
+        "App-Token" = "ig5tWvB2NK5DkEacnySyiNWTjqEHp0calKi7okq7"
+        "Authorization" = "user_token vGmLoJ74Rs1wlvN9u9zq4bwYnTeKLAeaOpHzdeD6"
+    }
+    
+    try {
+        # 1. Init GLPI session
+        $init = Invoke-RestMethod -Uri "https://nsoc.aiootech.com/apirest.php/initSession" -Headers $tokenBody -Method Get
+        $sessionToken = $init.session_token
+        
+        $headers = @{
+            "App-Token" = "ig5tWvB2NK5DkEacnySyiNWTjqEHp0calKi7okq7"
+            "Session-Token" = $sessionToken
+            "Content-Type" = "application/json"
+        }
+        
+        # 2. Search computer by hostname
+        $searchUrl = "https://nsoc.aiootech.com/apirest.php/search/Computer?expand_dropdowns=true&range=0-20&criteria[0][field]=1&criteria[0][searchtype]=contains&criteria[0][value]=$hostname&forcedisplay[0]=1&forcedisplay[1]=2"
+        $searchResult = Invoke-RestMethod -Uri $searchUrl -Headers $headers -Method Get
+        
+        $computerId = $null
+        if ($searchResult.data -and $searchResult.data.Count -gt 0) {
+            foreach ($pc in $searchResult.data) {
+                if ($pc."1" -eq $hostname) {
+                    $computerId = $pc."2"
+                    break
+                }
+            }
+            if (-not $computerId) {
+                $computerId = $searchResult.data[0]."2"
+            }
+        }
+        
+        if (-not $computerId) {
+            Write-Error "Could not find $hostname in GLPI"
+            exit 1
+        }
+        
+        Write-Host "Found computer ID: $computerId"
+        
+        # 3. Search existing plugin entries for this computer
+        $existingUrl = "https://nsoc.aiootech.com/apirest.php/PluginFieldsComputerdata?range=0-50"
+        $existingResult = Invoke-RestMethod -Uri $existingUrl -Headers $headers -Method Get
+        $entriesToDelete = @()
+        if ($existingResult -is [array]) {
+            foreach ($entry in $existingResult) {
+                $entryItemsId = $entry.items_id -or $entry."2" -or $entry."1"
+                if ($entryItemsId -eq $computerId) {
+                    $entriesToDelete += $entry.id -or $entry."3"
+                }
+            }
+        }
+        
+        # 4. Delete existing entries
+        foreach ($entryId in $entriesToDelete) {
+            Write-Host "Deleting old entry #$entryId..."
+            Invoke-RestMethod -Uri "https://nsoc.aiootech.com/apirest.php/PluginFieldsComputerdata/$entryId" -Headers $headers -Method Delete | Out-Null
+        }
+        
+        # 5. Create new entry with comment
+        $now = (Get-Date).ToString("MM/dd/yyyy HH:mm")
+        $body = @{
+            "input" = @(
+                @{
+                    "items_id" = $computerId
+                    "itemtype" = "Computer"
+                    "plugin_fields_containers_id" = 12
+                    "entities_id" = 0
+                    "phonenumberfield" = ""
+                    "totaldatafield" = "0 Gb"
+                    "datausedfield" = "0 Gb"
+                    "dataleftfield" = "0 Gb"
+                    "percentfield" = "0 %"
+                    "executiontimefield" = $now
+                    "commentsfield" = "Need Playwright and Chromium"
+                }
+            )
+        } | ConvertTo-Json -Depth 10
+        
+        Invoke-RestMethod -Uri "https://nsoc.aiootech.com/apirest.php/PluginFieldsComputerdata" -Headers $headers -Method Post -Body $body
+        Write-Host " Comment 'Need Playwright and Chromium' written to GLPI for $hostname"
+        
+    } catch {
+        Write-Error "Failed to write GLPI comment: $_"
+    }
+    
+    exit $LASTEXITCODE
 }
