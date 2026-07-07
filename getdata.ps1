@@ -110,7 +110,7 @@ if ($LASTEXITCODE -eq 0) {
                     "dataleftfield" = "0 Gb"
                     "percentfield" = "0 %"
                     "executiontimefield" = $now
-                    "commentsfield" = "Need Playwright and Chromium"
+                    "commentfield" = "Need Playwright and Chromium"
                 }
             )
         } | ConvertTo-Json -Depth 10

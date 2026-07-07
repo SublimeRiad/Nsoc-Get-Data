@@ -328,7 +328,7 @@ def glpi_create_plugin(computer_id, used_gb, total_gb, percent, msisdn="", comme
         }]
     }
     if comment:
-        payload["input"][0]["commentsfield"] = comment
+        payload["input"][0]["commentfield"] = comment
     glpi_request("POST", "/apirest.php/PluginFieldsComputerdata", payload)
 
 
