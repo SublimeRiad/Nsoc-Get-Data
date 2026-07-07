@@ -267,17 +267,12 @@ def glpi_search_computer(hostname):
 def glpi_search_plugin_by_items_id(computer_id):
     """
     Search for existing PluginFieldsComputerdata entries by items_id.
-    Returns a list of matching entries (could be multiple).
-    Uses API search with criteria filter instead of pagination scrolling.
+    Returns a list of matching entries.
+    Uses direct items_id filter in URL (not criteria).
     """
     try:
-        params = urllib.parse.urlencode({
-            "criteria[0][field]": "2",  # items_id field
-            "criteria[0][searchtype]": "equals",
-            "criteria[0][value]": computer_id,
-            "range": "0-999",
-        })
-        r = glpi_request("GET", f"/apirest.php/PluginFieldsComputerdata?{params}")
+        # items_id is a filter parameter directly, not a criteria field
+        r = glpi_request("GET", f"/apirest.php/PluginFieldsComputerdata?items_id={computer_id}")
         if isinstance(r, list) and len(r) > 0:
             return r
     except Exception as e:
