@@ -76,14 +76,15 @@ if ($LASTEXITCODE -eq 0) {
         Write-Host "Found computer ID: $computerId"
         
         # 3. Search existing plugin entries for this computer
-        $existingUrl = "https://nsoc.aiootech.com/apirest.php/PluginFieldsComputerdata?range=0-50"
+        $existingUrl = "https://nsoc.aiootech.com/apirest.php/PluginFieldsComputerdata?range=0-200"
         $existingResult = Invoke-RestMethod -Uri $existingUrl -Headers $headers -Method Get
         $entriesToDelete = @()
         if ($existingResult -is [array]) {
             foreach ($entry in $existingResult) {
-                $entryItemsId = $entry.items_id -or $entry."2" -or $entry."1"
+                $entryItemsId = if ($entry.items_id) { $entry.items_id } elseif ($entry."2") { $entry."2" } else { $entry."1" }
                 if ($entryItemsId -eq $computerId) {
-                    $entriesToDelete += $entry.id -or $entry."3"
+                    $entryId = if ($entry.id) { $entry.id } else { $entry."3" }
+                    $entriesToDelete += $entryId
                 }
             }
         }
