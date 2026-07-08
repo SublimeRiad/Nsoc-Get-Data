@@ -49,6 +49,48 @@ if (-not $python) {
 
 Write-Host "Using Python: $python"
 
+# ── Auto-install Playwright + Chromium if missing ──
+Write-Host "[CHECK] Checking Playwright/Chromium..."
+$playwrightMissing = $false
+try {
+    $check = & $python -c "import playwright; print('OK')" 2>&1
+    if ($check -notmatch "OK") { $playwrightMissing = $true }
+} catch { $playwrightMissing = $true }
+
+# Also check that chromium is actually downloaded in C:\ProgramData\ms-playwright
+$chromiumDir = Get-ChildItem "C:\ProgramData\ms-playwright" -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "chromium*" }
+if ($playwrightMissing -or -not $chromiumDir) {
+    Write-Host "[INSTALL] Playwright or Chromium missing. Installing..."
+    
+    # Install Playwright package
+    Write-Host "[INSTALL] pip install playwright..."
+    & $python -m pip install playwright --quiet
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "[INSTALL] Failed to install Playwright package"
+        exit 1
+    }
+    Write-Host "[INSTALL] Playwright package installed."
+    
+    # Ensure target directory exists
+    if (-not (Test-Path "C:\ProgramData\ms-playwright")) {
+        New-Item -ItemType Directory -Path "C:\ProgramData\ms-playwright" -Force | Out-Null
+    }
+    
+    # Install Chromium browser
+    Write-Host "[INSTALL] Downloading Chromium (~180 MB)..."
+    & $python -m playwright install chromium
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "[INSTALL] Failed to install Chromium"
+        exit 1
+    }
+    
+    # Set environment variable system-wide
+    [Environment]::SetEnvironmentVariable("PLAYWRIGHT_BROWSERS_PATH", "C:\ProgramData\ms-playwright", "Machine")
+    Write-Host "[INSTALL] Chromium installed in C:\ProgramData\ms-playwright"
+} else {
+    Write-Host "[OK] Playwright and Chromium ready."
+}
+
 # Run the script
 if ($verbose) {
     Write-Host "Running in verbose mode..."
@@ -63,9 +105,9 @@ if ($LASTEXITCODE -eq 0) {
 } else {
     Write-Error "Script failed with exit code $LASTEXITCODE"
     
-    # Check if it's a Playwright/Chromium issue and write comment to GLPI
+    # Write error comment to GLPI
     $hostname = $env:COMPUTERNAME
-    Write-Host "Attempting to write 'Need Playwright and Chromium' comment to GLPI for $hostname..."
+    Write-Host "Attempting to write error comment to GLPI for $hostname..."
     
     $tokenBody = @{
         "App-Token" = "ig5tWvB2NK5DkEacnySyiNWTjqEHp0calKi7okq7"
