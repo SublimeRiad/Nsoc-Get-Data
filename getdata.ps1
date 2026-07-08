@@ -13,20 +13,49 @@ $env:PLAYWRIGHT_BROWSERS_PATH = "C:\ProgramData\ms-playwright"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $PyScript = Join-Path $ScriptDir "get_data_usage.py"
 
-# Check Python
-$python = Get-Command python.exe -ErrorAction SilentlyContinue
+# Find Python: try user AppData first (SYSTEM runs don't have user PATH), then PATH
+$python = $null
+$userPythonDirs = Get-ChildItem "$env:LOCALAPPDATA\Programs\Python" -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending
+foreach ($dir in $userPythonDirs) {
+    $candidate = Join-Path $dir.FullName "python.exe"
+    if (Test-Path $candidate) {
+        $python = $candidate
+        break
+    }
+}
+if (-not $python) {
+    # Fallback: also check ALLUSERS profile
+    $allUsersPython = Get-ChildItem "$env:ALLUSERSPROFILE\chocolatey\lib\python*" -Directory -ErrorAction SilentlyContinue
+    foreach ($dir in $allUsersPython) {
+        $candidate = Join-Path $dir.FullName "tools\python.exe"
+        if (Test-Path $candidate) {
+            $python = $candidate
+            break
+        }
+    }
+}
+# Final fallback: try PATH
+if (-not $python) {
+    $pathPython = Get-Command python.exe -ErrorAction SilentlyContinue
+    if ($pathPython) {
+        $python = $pathPython.Source
+    }
+}
+
 if (-not $python) {
     Write-Error "Python not found. Install Python 3.8+ first."
     exit 1
 }
 
+Write-Host "Using Python: $python"
+
 # Run the script
 if ($verbose) {
     Write-Host "Running in verbose mode..."
-    python.exe $PyScript
+    & $python $PyScript
 } else {
     Write-Host "Running data collection..."
-    python.exe $PyScript --silent
+    & $python $PyScript --silent
 }
 
 if ($LASTEXITCODE -eq 0) {
