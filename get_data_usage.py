@@ -71,8 +71,29 @@ def get_du_usage_with_edge():
         "status": "failed",
     }
     
-    # We'll use a self-contained approach: write a tiny JS that runs via Edge
-    # Edge can be launched with --headless --dump-dom to get the page content
+    # Find the real user's Edge profile (not SYSTEM's)
+    real_user_profile = None
+    users_dir = r"C:\Users"
+    if os.path.isdir(users_dir):
+        for u in sorted(os.listdir(users_dir)):
+            u_lower = u.lower()
+            # Skip system accounts
+            if u_lower in ("public", "default", "default user", "all users", "defaultuser0", "administrator"):
+                continue
+            candidate = os.path.join(users_dir, u, "AppData", "Local", "Microsoft", "Edge", "User Data")
+            if os.path.isdir(candidate):
+                default_profile = os.path.join(candidate, "Default", "Cookies")
+                if not os.path.exists(default_profile):
+                    default_profile = os.path.join(candidate, "Default", "Network", "Cookies")
+                if os.path.exists(default_profile):
+                    real_user_profile = candidate
+                    log(f"Found Edge profile: {u}")
+                    break
+    
+    if not real_user_profile:
+        real_user_profile = os.environ.get("USERPROFILE", "C:\\Users\\Default")
+        real_user_profile = os.path.join(real_user_profile, "AppData", "Local", "Microsoft", "Edge", "User Data")
+    
     edge_paths = [
         r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
         r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
@@ -116,19 +137,15 @@ def get_du_usage_with_edge():
         html = result.stdout
         
         if not html or len(html) < 100:
-            # Maybe it redirected to a login page - try with user data dir
-            log(f"Empty page ({len(html) if html else 0} chars). Trying with user profile...")
-            
-            # Get the current Windows user's Edge profile
-            user_profile = os.environ.get("USERPROFILE", "C:\\Users\\Default")
-            user_data_dir = os.path.join(user_profile, "AppData", "Local", "Microsoft", "Edge", "User Data")
+            # Maybe it redirected - try with real user's Edge profile
+            log(f"Empty page ({len(html) if html else 0} chars). Trying with user profile: {real_user_profile}")
             
             cmd = [
                 edge_path,
                 "--headless=new",
                 "--disable-gpu",
                 "--no-sandbox",
-                f"--user-data-dir={user_data_dir}",
+                f"--user-data-dir={real_user_profile}",
                 "--virtual-time-budget=20000",
                 "http://mydata.du.ae/",
                 "--dump-dom",
