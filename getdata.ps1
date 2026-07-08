@@ -6,6 +6,9 @@ Write-Host "NSOC Data Usage Collector"
 Write-Host "========================="
 Write-Host ""
 
+# Set Chromium path for Playwright (shared install)
+$env:PLAYWRIGHT_BROWSERS_PATH = "C:\ProgramData\ms-playwright"
+
 # Path to Python script
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $PyScript = Join-Path $ScriptDir "get_data_usage.py"

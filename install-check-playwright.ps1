@@ -1,5 +1,5 @@
 # NSOC Data Usage Collector - Playwright/Chromium Installation Check & Runner
-# Checks if Playwright + Chromium are installed, installs if missing, then runs getdata.ps1
+# Installs in C:\ProgramData\ms-playwright so SYSTEM deploy and user runs both work
 # Usage: powershell -ExecutionPolicy Bypass -File install-check-playwright.ps1
 
 Write-Host "======================================"
@@ -9,6 +9,10 @@ Write-Host ""
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $GetDataScript = Join-Path $ScriptDir "getdata.ps1"
+
+# Set Chromium path to shared location
+$env:PLAYWRIGHT_BROWSERS_PATH = "C:\ProgramData\ms-playwright"
+[Environment]::SetEnvironmentVariable("PLAYWRIGHT_BROWSERS_PATH", "C:\ProgramData\ms-playwright", "Machine")
 
 # ── 1. Check Python ──
 $python = Get-Command python.exe -ErrorAction SilentlyContinue
@@ -28,43 +32,23 @@ try {
     }
 } catch {}
 
-# ── 3. Check if Chromium is installed for Playwright ──
+# ── 3. Check if Chromium is installed in ProgramData ──
 $chromiumInstalled = $false
-if ($playwrightInstalled) {
-    try {
-        $check = python -c "from playwright.sync_api import sync_playwright; exec('import os; print(os.path.exists(os.path.join(os.path.dirname(sync_playwright.__file__), \"driver\", \"node_modules\", \"playwright-core\", \".browsers\")))')" 2>&1
-        $check2 = python -m playwright install --dry-run chromium 2>&1
-        if ($check2 -match "already installed" -or $check2 -match "is up to date" -or $check2 -match "browsers are already installed") {
-            $chromiumInstalled = $true
-        }
-        # Alternative: try to actually check via cache path
-        $check3 = python -c "
-try:
-    from playwright.sync_api import sync_playwright
-    import subprocess, json, os
-    result = subprocess.run(['python', '-m', 'playwright', 'install', '--dry-run', 'chromium'], capture_output=True, text=True, timeout=15)
-    if 'already' in result.stdout.lower() or 'skip' in result.stdout.lower():
-        print('INSTALLED')
-    else:
-        # Check browsers path directly
-        try:
-            from playwright._impl._driver import compute_driver_executable
-            p = os.path.expanduser('~/.cache/ms-playwright')
-            if os.path.exists(p) and len(os.listdir(p)) > 0:
-                print('INSTALLED')
-            else:
-                print('NOT_INSTALLED')
-        except:
-            print('NOT_INSTALLED')
-except Exception as e:
-    print(f'ERROR: {e}')
-" 2>&1
-        if ($check3 -match "INSTALLED") {
-            $chromiumInstalled = $true
-        }
-    } catch {
-        $chromiumInstalled = $false
+$chromiumPath = "C:\ProgramData\ms-playwright"
+if (Test-Path $chromiumPath) {
+    $chromiumDirs = Get-ChildItem -Path $chromiumPath -Directory -ErrorAction SilentlyContinue
+    if ($chromiumDirs -and $chromiumDirs.Count -gt 0) {
+        $chromiumInstalled = $true
     }
+}
+# Also check via Playwright dry-run
+if (-not $chromiumInstalled -and $playwrightInstalled) {
+    try {
+        $check = python -m playwright install --dry-run chromium 2>&1
+        if ($check -match "already" -or $check -match "skip") {
+            $chromiumInstalled = $true
+        }
+    } catch {}
 }
 
 # ── 4. Install what's missing ──
@@ -84,7 +68,14 @@ if (-not $playwrightInstalled) {
 
 if (-not $chromiumInstalled) {
     Write-Host "[...] Installing Chromium browser for Playwright (~150 MB)..."
+    Write-Host "      Target: $chromiumPath"
     Write-Host "      This may take a few minutes..."
+    
+    # Ensure target directory exists
+    if (-not (Test-Path $chromiumPath)) {
+        New-Item -ItemType Directory -Path $chromiumPath -Force | Out-Null
+    }
+    
     python -m playwright install chromium
     if ($LASTEXITCODE -ne 0) {
         Write-Error "Failed to install Chromium!"
@@ -92,9 +83,12 @@ if (-not $chromiumInstalled) {
         exit 1
     }
     $chromiumInstalled = $true
-    Write-Host "[OK] Chromium installed!"
+    Write-Host "[OK] Chromium installed in $chromiumPath"
+    
+    # Set env variable permanently
+    [Environment]::SetEnvironmentVariable("PLAYWRIGHT_BROWSERS_PATH", $chromiumPath, "Machine")
 } else {
-    Write-Host "[OK] Chromium already installed"
+    Write-Host "[OK] Chromium already installed in $chromiumPath"
 }
 
 # ── 5. Run getdata.ps1 ──
