@@ -388,7 +388,7 @@ def get_du_usage_playwright():
         from playwright.sync_api import sync_playwright
         
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-gpu", "--disable-setuid-sandbox"])
             page = browser.new_page()
             page.goto("http://mydata.du.ae", wait_until="networkidle", timeout=60000)
             page.wait_for_timeout(7000)
@@ -439,9 +439,9 @@ def get_du_usage_playwright():
         err = str(e)
         if "Executable doesn't exist" in err or "playwright install" in err:
             log("Chromium not installed for Playwright")
-            return {"hostname": platform.node(), "status": "no_playwright", "message": "Chromium not installed for Playwright"}
+            return {"hostname": platform.node(), "status": "playwright_failed", "message": "Chromium not installed for Playwright"}
         log(f"Playwright error: {e}")
-        return {"hostname": platform.node(), "status": "no_playwright", "message": str(e)}
+        return {"hostname": platform.node(), "status": "playwright_failed", "message": str(e)}
 
 
 # ═══════════════════════════════════════════
@@ -500,10 +500,14 @@ def main():
         else:
             log(f"Both Edge and Playwright failed: {du_data['status']}")
     
-    # Determine comment if Playwright is missing
+    # Determine comment based on failure reason
     comment = ""
-    if du_data["status"] == "no_playwright":
-        comment = "Need Playwright and Chromium"
+    if du_data["status"] == "playwright_failed":
+        comment = du_data.get("message", "Playwright/Chromium execution failed")
+    elif du_data["status"] == "no_edge":
+        comment = "Edge not found, Playwright failed"
+    elif du_data["status"] in ("timeout", "error"):
+        comment = f"Scraping failed: {du_data.get('status', 'unknown')}"
     
     # Step 4: Update GLPI — delete existing entries then create fresh
     log("Updating GLPI custom fields...")
