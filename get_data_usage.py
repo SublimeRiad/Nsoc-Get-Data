@@ -55,30 +55,37 @@ def _extract_phone(html):
             return num
     return ""
 
-def _extract_all_gb_values(html):
+def _extract_usage_from_html(html):
     """
-    Extract all data values from DU portal HTML, converting MB to GB.
-    Returns a sorted list of all values in GB.
+    Extract data usage values from DU portal HTML, keeping original units.
+    Returns (used_value, used_unit, total_value, total_unit) or None.
+    Example: "735.95 MB/15.00 GB" -> ("735.95", "MB", "15.00", "GB")
     """
-    values_gb = []
+    # Pattern 1: "X.XX MB / Y.YY GB" or "X.XX GB / Y.YY GB"
+    m = re.search(r"(\d+[\.,]?\d*)\s*(\w[Bb])\s*/\s*(\d+[\.,]?\d*)\s*(\w[Bb])", html)
+    if m:
+        return (m.group(1), m.group(2), m.group(3), m.group(4))
     
-    # Match GB values
-    for m in re.finditer(r"(\d+[\.,]?\d*)\s*(?:[Gg][Bb])", html):
-        try:
-            val = float(m.group(1).replace(",", ""))
-            values_gb.append(val)
-        except ValueError:
-            pass
+    # Pattern 2: "X.XX MB out of Y.YY GB" or "X.XX of Y.YY GB"
+    m = re.search(r"(\d+[\.,]?\d*)\s*(\w[Bb])\s+(?:out of|of|/)\s+(\d+[\.,]?\d*)\s*(\w[Bb])", html)
+    if m:
+        return (m.group(1), m.group(2), m.group(3), m.group(4))
     
-    # Match MB values and convert to GB
-    for m in re.finditer(r"(\d+[\.,]?\d*)\s*(?:[Mm][Bb])", html):
-        try:
-            val = float(m.group(1).replace(",", ""))
-            values_gb.append(round(val / 1024, 4))
-        except ValueError:
-            pass
-    
-    return sorted(values_gb)
+    return None
+
+
+def _normalize_to_gb(value, unit):
+    """Convert value+unit to GB float. Returns (float_gb, original_display_string)."""
+    val = float(value.replace(",", ""))
+    unit_lower = unit.lower()
+    if unit_lower in ("gb", "gib"):
+        return val, f"{value} {unit}"
+    elif unit_lower in ("mb", "mib"):
+        return round(val / 1024, 4), f"{value} {unit}"
+    elif unit_lower in ("kb", "kib"):
+        return round(val / (1024**2), 6), f"{value} {unit}"
+    else:
+        return val, f"{value} {unit}"
 
 
 def get_du_usage_with_edge():
@@ -188,49 +195,40 @@ def get_du_usage_with_edge():
             output["msisdn"] = extracted_phone
             log(f"Phone: {output['msisdn']}")
         
-        # Collect GB and MB numbers, convert all to GB
-        usage_vals_gb = _extract_all_gb_values(html)
-        debug(f"All values in GB: {usage_vals_gb}")
-        
-        if len(usage_vals_gb) >= 2:
-            used_gb_val = min(usage_vals_gb)
+        # Extract usage with original units
+        usage = _extract_usage_from_html(html)
+        if usage:
+            used_val_str, used_unit, total_val_str, total_unit = usage
+            log(f"Found usage: {used_val_str} {used_unit} / {total_val_str} {total_unit}")
             
-            total_gb_val = None
-            for v in usage_vals_gb:
-                if 1 <= v <= 500 and v > used_gb_val:
-                    total_gb_val = v
-                    break
+            # Store original display strings
+            output["_used_display"] = f"{used_val_str} {used_unit}"
+            output["_total_display"] = f"{total_val_str} {total_unit}"
             
-            if total_gb_val is None:
-                candidates = [v for v in usage_vals_gb if v > used_gb_val and v < 50000]
-                if candidates:
-                    total_gb_val = min(candidates)
-                else:
-                    larger = [v for v in usage_vals_gb if v > used_gb_val]
-                    if larger:
-                        total_gb_val = min(larger)
+            # Convert to GB for numeric fields
+            used_gb, _ = _normalize_to_gb(used_val_str, used_unit)
+            total_gb, _ = _normalize_to_gb(total_val_str, total_unit)
             
-            if total_gb_val:
-                output["used_gb"] = round(used_gb_val, 2)
-                output["total_gb"] = round(total_gb_val, 2)
-                output["left_gb"] = round(total_gb_val - used_gb_val, 2)
-                output["data_percent"] = round((used_gb_val / total_gb_val) * 100, 2) if total_gb_val > 0 else 0
-                output["status"] = "success"
-                log(f"Data: {output['used_gb']}GB / {output['total_gb']}GB ({output['data_percent']}%)")
-                return output
+            output["used_gb"] = used_gb
+            output["total_gb"] = total_gb
+            output["left_gb"] = round(total_gb - used_gb, 4)
+            output["data_percent"] = round((used_gb / total_gb) * 100, 2) if total_gb > 0 else 0
+            output["status"] = "success"
+            log(f"Data: {used_gb:.4f}GB / {total_gb}GB ({output['data_percent']}%)")
+            return output
         
         # Fallback: percentage
-        log("GB/MB number matching failed, trying percentage...")
+        log("Usage pattern not found, trying percentage...")
         pct_match = re.search(r"(\d+[\.,]?\d*)\s*%", html)
-        if pct_match and usage_vals_gb:
+        all_gb = re.findall(r"(\d+[\.,]?\d*)\s*(?:[Gg][Bb])", html)
+        if pct_match and all_gb:
             output["data_percent"] = float(pct_match.group(1).replace(",", "."))
-            output["used_gb"] = min(usage_vals_gb)
-            if output["data_percent"] > 0:
-                output["total_gb"] = round(output["used_gb"] / (output["data_percent"] / 100), 2)
-                output["left_gb"] = round(output["total_gb"] - output["used_gb"], 2)
-                output["status"] = "success"
-                log(f"Data (from %): {output['used_gb']}GB / {output['total_gb']}GB ({output['data_percent']}%)")
-                return output
+            output["total_gb"] = float(all_gb[-1].replace(",", ""))
+            output["used_gb"] = round(output["total_gb"] * output["data_percent"] / 100, 4)
+            output["left_gb"] = round(output["total_gb"] - output["used_gb"], 4)
+            output["status"] = "success"
+            log(f"Data (from %): {output['used_gb']}GB / {output['total_gb']}GB ({output['data_percent']}%)")
+            return output
         
         log("Could not parse data usage from DU page")
         return output
@@ -331,23 +329,29 @@ def glpi_delete_plugin(plugin_id):
         log(f"Delete plugin #{plugin_id} failed: {e}")
         return False
 
-def glpi_update_plugin(plugin_id, used_gb, total_gb, percent, msisdn=""):
+def glpi_update_plugin(plugin_id, used_gb, total_gb, percent, msisdn="", used_display=None, total_display=None):
     now = datetime.datetime.now().strftime("%m/%d/%Y %H:%M")
     left_gb = round(total_gb - used_gb, 2)
+    used_str = used_display if used_display else f"{round(used_gb, 2)} Gb"
+    total_str = total_display if total_display else f"{round(total_gb, 2)} Gb"
+    left_str = total_display if total_display else f"{left_gb} Gb"
     glpi_request("PUT", f"/apirest.php/PluginFieldsComputerdata/{plugin_id}", {
         "input": [{
             "id": plugin_id,
-            "totaldatafield": f"{round(total_gb, 2)} Gb",
-            "datausedfield": f"{round(used_gb, 2)} Gb",
-            "dataleftfield": f"{left_gb} Gb",
+            "totaldatafield": total_str,
+            "datausedfield": used_str,
+            "dataleftfield": left_str,
             "percentfield": f"{round(percent, 1)} %",
             "executiontimefield": now,
         }]
     })
 
-def glpi_create_plugin(computer_id, used_gb, total_gb, percent, msisdn="", comment=""):
+def glpi_create_plugin(computer_id, used_gb, total_gb, percent, msisdn="", comment="", used_display=None, total_display=None):
     now = datetime.datetime.now().strftime("%m/%d/%Y %H:%M")
-    left_gb = round(total_gb - used_gb, 2)
+    left_gb = round(total_gb - used_gb, 4)
+    used_str = used_display if used_display else f"{round(used_gb, 2)} Gb"
+    total_str = total_display if total_display else f"{round(total_gb, 2)} Gb"
+    left_str = total_display if total_display else f"{left_gb} Gb"
     payload = {
         "input": [{
             "items_id": computer_id,
@@ -355,9 +359,9 @@ def glpi_create_plugin(computer_id, used_gb, total_gb, percent, msisdn="", comme
             "plugin_fields_containers_id": 12,
             "entities_id": 0,
             "phonenumberfield": msisdn,
-            "totaldatafield": f"{round(total_gb, 2)} Gb",
-            "datausedfield": f"{round(used_gb, 2)} Gb",
-            "dataleftfield": f"{left_gb} Gb",
+            "totaldatafield": total_str,
+            "datausedfield": used_str,
+            "dataleftfield": left_str,
             "percentfield": f"{round(percent, 1)} %",
             "executiontimefield": now,
         }]
@@ -416,27 +420,23 @@ def get_du_usage_playwright():
             if phone_match:
                 result["msisdn"] = phone_match.group(0)
             
-            # Collect GB and MB numbers, convert all to GB
-            usage_vals_gb = _extract_all_gb_values(text)
-            debug(f"Playwright - All values in GB: {usage_vals_gb}")
-            
-            if len(usage_vals_gb) >= 2:
-                used_gb_val = min(usage_vals_gb)
-                total_gb_val = None
-                for v in usage_vals_gb:
-                    if 1 <= v <= 500 and v > used_gb_val:
-                        total_gb_val = v
-                        break
-                if total_gb_val is None:
-                    larger = [v for v in usage_vals_gb if v > used_gb_val]
-                    if larger:
-                        total_gb_val = min(larger)
-                if total_gb_val:
-                    result["used_gb"] = round(used_gb_val, 2)
-                    result["total_gb"] = round(total_gb_val, 2)
-                    result["left_gb"] = round(total_gb_val - used_gb_val, 2)
-                    result["data_percent"] = round((used_gb_val / total_gb_val) * 100, 2) if total_gb_val > 0 else 0
-                    result["status"] = "success"
+            # Extract usage with original units
+            usage = _extract_usage_from_html(text)
+            if usage:
+                used_val_str, used_unit, total_val_str, total_unit = usage
+                log(f"Playwright - Found usage: {used_val_str} {used_unit} / {total_val_str} {total_unit}")
+                
+                result["_used_display"] = f"{used_val_str} {used_unit}"
+                result["_total_display"] = f"{total_val_str} {total_unit}"
+                
+                used_gb, _ = _normalize_to_gb(used_val_str, used_unit)
+                total_gb, _ = _normalize_to_gb(total_val_str, total_unit)
+                
+                result["used_gb"] = used_gb
+                result["total_gb"] = total_gb
+                result["left_gb"] = round(total_gb - used_gb, 4)
+                result["data_percent"] = round((used_gb / total_gb) * 100, 2) if total_gb > 0 else 0
+                result["status"] = "success"
             
             browser.close()
             return result
@@ -534,7 +534,16 @@ def main():
             log(f"No existing entries found for computer #{computer_id}, creating fresh...")
         
         # Always create fresh entry
-        glpi_create_plugin(computer_id, du_data["used_gb"], du_data["total_gb"], du_data["data_percent"], du_data.get("msisdn", ""), comment)
+        glpi_create_plugin(
+            computer_id,
+            du_data["used_gb"],
+            du_data["total_gb"],
+            du_data["data_percent"],
+            du_data.get("msisdn", ""),
+            comment,
+            used_display=du_data.get("_used_display"),
+            total_display=du_data.get("_total_display"),
+        )
         log("Created new plugin field entry")
     except Exception as e:
         log(f"GLPI update failed: {e}")
