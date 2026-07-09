@@ -88,6 +88,50 @@ def _normalize_to_gb(value, unit):
         return val, f"{value} {unit}"
 
 
+# Max realistic DU plan total (GB) — reject anything above
+_MAX_PLAN_GB = 500
+
+
+def _validate_display(used_val_str, used_unit, total_val_str, total_unit, html):
+    """
+    Validate parsed values: total must be <= _MAX_PLAN_GB.
+    If total is unrealistic (e.g. 10238976 GB), try to find a realistic total in the HTML.
+    Returns (used_val_str, used_unit, total_val_str, total_unit) or None if unfixable.
+    """
+    total_gb, _ = _normalize_to_gb(total_val_str, total_unit)
+    if total_gb <= _MAX_PLAN_GB:
+        return (used_val_str, used_unit, total_val_str, total_unit)
+    
+    # Total unrealistic — search for a realistic total value in the same HTML
+    log(f"Total {total_gb:.0f} GB unrealistic (> {_MAX_PLAN_GB} GB), searching for realistic value...")
+    used_gb, _ = _normalize_to_gb(used_val_str, used_unit)
+    
+    # Find all GB/MB values and pick the best total (between used+1 and 500)
+    all_values = []
+    for m in re.finditer(r"(\d+[\.,]?\d*)\s*(?:[Gg][Bb])", html):
+        try:
+            v = float(m.group(1).replace(",", ""))
+            if used_gb < v <= _MAX_PLAN_GB:
+                all_values.append(v)
+        except ValueError:
+            pass
+    for m in re.finditer(r"(\d+[\.,]?\d*)\s*(?:[Mm][Bb])", html):
+        try:
+            v = float(m.group(1).replace(",", "")) / 1024
+            if used_gb < v <= _MAX_PLAN_GB:
+                all_values.append(v)
+        except ValueError:
+            pass
+    
+    if all_values:
+        best_total = min(all_values)
+        log(f"Found realistic total: {best_total} GB")
+        return (used_val_str, used_unit, str(best_total), "GB")
+    
+    log("Could not find realistic total")
+    return None
+
+
 def get_du_usage_selenium():
     """
     Use Selenium with Edge WebDriver (built-in on Windows 10/11).
@@ -220,18 +264,23 @@ def get_du_usage_urllib():
         usage = _extract_usage_from_html(html)
         if usage:
             used_val_str, used_unit, total_val_str, total_unit = usage
-            log(f"Found usage: {used_val_str} {used_unit} / {total_val_str} {total_unit}")
-            output["_used_display"] = f"{used_val_str} {used_unit}"
-            output["_total_display"] = f"{total_val_str} {total_unit}"
-            used_gb, _ = _normalize_to_gb(used_val_str, used_unit)
-            total_gb, _ = _normalize_to_gb(total_val_str, total_unit)
-            output["used_gb"] = used_gb
-            output["total_gb"] = total_gb
-            output["left_gb"] = round(total_gb - used_gb, 4)
-            output["data_percent"] = round((used_gb / total_gb) * 100, 2) if total_gb > 0 else 0
-            output["status"] = "success"
-            log(f"Data: {used_gb:.4f}GB / {total_gb}GB ({output['data_percent']}%)")
-            return output
+            validated = _validate_display(used_val_str, used_unit, total_val_str, total_unit, html)
+            if not validated:
+                log("Realistic total not found via HTTP, skipping...")
+            else:
+                used_val_str, used_unit, total_val_str, total_unit = validated
+                log(f"Found usage: {used_val_str} {used_unit} / {total_val_str} {total_unit}")
+                output["_used_display"] = f"{used_val_str} {used_unit}"
+                output["_total_display"] = f"{total_val_str} {total_unit}"
+                used_gb, _ = _normalize_to_gb(used_val_str, used_unit)
+                total_gb, _ = _normalize_to_gb(total_val_str, total_unit)
+                output["used_gb"] = used_gb
+                output["total_gb"] = total_gb
+                output["left_gb"] = round(total_gb - used_gb, 4)
+                output["data_percent"] = round((used_gb / total_gb) * 100, 2) if total_gb > 0 else 0
+                output["status"] = "success"
+                log(f"Data: {used_gb:.4f}GB / {total_gb}GB ({output['data_percent']}%)")
+                return output
         
         # Fallback percentage
         log("Usage pattern not found via HTTP...")
@@ -376,23 +425,28 @@ def get_du_usage_with_edge():
         usage = _extract_usage_from_html(html)
         if usage:
             used_val_str, used_unit, total_val_str, total_unit = usage
-            log(f"Found usage: {used_val_str} {used_unit} / {total_val_str} {total_unit}")
-            
-            # Store original display strings
-            output["_used_display"] = f"{used_val_str} {used_unit}"
-            output["_total_display"] = f"{total_val_str} {total_unit}"
-            
-            # Convert to GB for numeric fields
-            used_gb, _ = _normalize_to_gb(used_val_str, used_unit)
-            total_gb, _ = _normalize_to_gb(total_val_str, total_unit)
-            
-            output["used_gb"] = used_gb
-            output["total_gb"] = total_gb
-            output["left_gb"] = round(total_gb - used_gb, 4)
-            output["data_percent"] = round((used_gb / total_gb) * 100, 2) if total_gb > 0 else 0
-            output["status"] = "success"
-            log(f"Data: {used_gb:.4f}GB / {total_gb}GB ({output['data_percent']}%)")
-            return output
+            validated = _validate_display(used_val_str, used_unit, total_val_str, total_unit, html)
+            if not validated:
+                log("Realistic total not found in Edge headless, falling through...")
+            else:
+                used_val_str, used_unit, total_val_str, total_unit = validated
+                log(f"Found usage: {used_val_str} {used_unit} / {total_val_str} {total_unit}")
+                
+                # Store original display strings
+                output["_used_display"] = f"{used_val_str} {used_unit}"
+                output["_total_display"] = f"{total_val_str} {total_unit}"
+                
+                # Convert to GB for numeric fields
+                used_gb, _ = _normalize_to_gb(used_val_str, used_unit)
+                total_gb, _ = _normalize_to_gb(total_val_str, total_unit)
+                
+                output["used_gb"] = used_gb
+                output["total_gb"] = total_gb
+                output["left_gb"] = round(total_gb - used_gb, 4)
+                output["data_percent"] = round((used_gb / total_gb) * 100, 2) if total_gb > 0 else 0
+                output["status"] = "success"
+                log(f"Data: {used_gb:.4f}GB / {total_gb}GB ({output['data_percent']}%)")
+                return output
         
         # Fallback: percentage
         log("Usage pattern not found, trying percentage...")
