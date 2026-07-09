@@ -12,7 +12,7 @@ Usage:
     python get_data_usage.py --install            # Install scheduled task
 """
 
-import sys, json, os, re, time, subprocess, tempfile, platform, datetime
+import sys, json, os, re, time, subprocess, tempfile, platform, datetime, math
 import urllib.request, urllib.parse, urllib.error
 import http.client, ssl
 
@@ -54,6 +54,32 @@ def _extract_phone(html):
                 num = "+971" + num
             return num
     return ""
+
+def _extract_all_gb_values(html):
+    """
+    Extract all data values from DU portal HTML, converting MB to GB.
+    Returns a sorted list of all values in GB.
+    """
+    values_gb = []
+    
+    # Match GB values
+    for m in re.finditer(r"(\d+[\.,]?\d*)\s*(?:[Gg][Bb])", html):
+        try:
+            val = float(m.group(1).replace(",", ""))
+            values_gb.append(val)
+        except ValueError:
+            pass
+    
+    # Match MB values and convert to GB
+    for m in re.finditer(r"(\d+[\.,]?\d*)\s*(?:[Mm][Bb])", html):
+        try:
+            val = float(m.group(1).replace(",", ""))
+            values_gb.append(round(val / 1024, 4))
+        except ValueError:
+            pass
+    
+    return sorted(values_gb)
+
 
 def get_du_usage_with_edge():
     """
@@ -162,36 +188,25 @@ def get_du_usage_with_edge():
             output["msisdn"] = extracted_phone
             log(f"Phone: {output['msisdn']}")
         
-        # Collect ALL GB numbers from the page
-        all_gb = re.findall(r"(\d+[\.,]?\d*)\s*[Gg][Bb]", html)
-        debug(f"All GB numbers found: {all_gb}")
+        # Collect GB and MB numbers, convert all to GB
+        usage_vals_gb = _extract_all_gb_values(html)
+        debug(f"All values in GB: {usage_vals_gb}")
         
-        gb_values = []
-        for g in all_gb:
-            try:
-                val = float(g.replace(",", ""))
-                gb_values.append(val)
-            except ValueError:
-                pass
-        
-        gb_values = sorted(gb_values)
-        debug(f"Sorted GB values: {gb_values}")
-        # Logic: smallest value = used data, find the plan total (1-500 GB)
-        if len(gb_values) >= 2:
-            used_gb_val = min(gb_values)
+        if len(usage_vals_gb) >= 2:
+            used_gb_val = min(usage_vals_gb)
             
             total_gb_val = None
-            for v in gb_values:
+            for v in usage_vals_gb:
                 if 1 <= v <= 500 and v > used_gb_val:
                     total_gb_val = v
                     break
             
             if total_gb_val is None:
-                candidates = [v for v in gb_values if v > used_gb_val and v < 50000]
+                candidates = [v for v in usage_vals_gb if v > used_gb_val and v < 50000]
                 if candidates:
                     total_gb_val = min(candidates)
                 else:
-                    larger = [v for v in gb_values if v > used_gb_val]
+                    larger = [v for v in usage_vals_gb if v > used_gb_val]
                     if larger:
                         total_gb_val = min(larger)
             
@@ -205,11 +220,11 @@ def get_du_usage_with_edge():
                 return output
         
         # Fallback: percentage
-        log("GB number matching failed, trying percentage...")
+        log("GB/MB number matching failed, trying percentage...")
         pct_match = re.search(r"(\d+[\.,]?\d*)\s*%", html)
-        if pct_match and gb_values:
+        if pct_match and usage_vals_gb:
             output["data_percent"] = float(pct_match.group(1).replace(",", "."))
-            output["used_gb"] = min(gb_values)
+            output["used_gb"] = min(usage_vals_gb)
             if output["data_percent"] > 0:
                 output["total_gb"] = round(output["used_gb"] / (output["data_percent"] / 100), 2)
                 output["left_gb"] = round(output["total_gb"] - output["used_gb"], 2)
@@ -401,26 +416,19 @@ def get_du_usage_playwright():
             if phone_match:
                 result["msisdn"] = phone_match.group(0)
             
-            # Collect all GB numbers
-            all_gb = re.findall(r"(\d+[\.,]?\d*)\s*GB", text, re.IGNORECASE)
-            gb_values = []
-            for g in all_gb:
-                try:
-                    val = float(g.replace(",", ""))
-                    gb_values.append(val)
-                except ValueError:
-                    pass
-            gb_values = sorted(gb_values)
+            # Collect GB and MB numbers, convert all to GB
+            usage_vals_gb = _extract_all_gb_values(text)
+            debug(f"Playwright - All values in GB: {usage_vals_gb}")
             
-            if len(gb_values) >= 2:
-                used_gb_val = min(gb_values)
+            if len(usage_vals_gb) >= 2:
+                used_gb_val = min(usage_vals_gb)
                 total_gb_val = None
-                for v in gb_values:
+                for v in usage_vals_gb:
                     if 1 <= v <= 500 and v > used_gb_val:
                         total_gb_val = v
                         break
                 if total_gb_val is None:
-                    larger = [v for v in gb_values if v > used_gb_val]
+                    larger = [v for v in usage_vals_gb if v > used_gb_val]
                     if larger:
                         total_gb_val = min(larger)
                 if total_gb_val:
