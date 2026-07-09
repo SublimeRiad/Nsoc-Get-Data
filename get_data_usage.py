@@ -88,6 +88,183 @@ def _normalize_to_gb(value, unit):
         return val, f"{value} {unit}"
 
 
+def get_du_usage_selenium():
+    """
+    Use Selenium with Edge WebDriver (built-in on Windows 10/11).
+    No Playwright, no greenlet DLL issues. Falls back to Edge headless.
+    """
+    output = {
+        "hostname": platform.node(),
+        "msisdn": "",
+        "total_gb": 0,
+        "used_gb": 0,
+        "left_gb": 0,
+        "data_percent": 0,
+        "status": "failed",
+    }
+    
+    try:
+        from selenium import webdriver
+        from selenium.webdriver.edge.options import Options
+        from selenium.webdriver.support.ui import WebDriverWait
+        from selenium.webdriver.support import expected_conditions as EC
+        from selenium.webdriver.common.by import By
+        
+        options = Options()
+        options.add_argument("--headless=new")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--disable-software-rasterizer")
+        options.add_argument("--window-size=1920,1080")
+        
+        # Add a realistic user agent
+        options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 Edg/149.0.0.0")
+        
+        # Try to use real user profile for cookies/session
+        for u in sorted(os.listdir(r"C:\Users")):
+            u_lower = u.lower()
+            if u_lower in ("public", "default", "default user", "all users", "defaultuser0", "administrator"):
+                continue
+            candidate = os.path.join(r"C:\Users", u, "AppData", "Local", "Microsoft", "Edge", "User Data")
+            if os.path.isdir(candidate):
+                options.add_argument(f"--user-data-dir={candidate}")
+                log(f"Using Edge profile: {u}")
+                break
+        
+        log("Launching Selenium Edge headless...")
+        driver = webdriver.Edge(options=options)
+        
+        try:
+            driver.get("http://mydata.du.ae")
+            
+            # Wait for Angular to render - wait for body to have real content
+            WebDriverWait(driver, 30).until(
+                lambda d: len(d.find_element(By.TAG_NAME, "body").text) > 50
+            )
+            
+            text = driver.find_element(By.TAG_NAME, "body").text
+            html = driver.page_source
+            log(f"Page loaded: {len(text)} chars text")
+            debug(f"Text: {text[:500]}")
+            
+            # Phone
+            extracted_phone = _extract_phone(html) or _extract_phone(text)
+            if extracted_phone:
+                output["msisdn"] = extracted_phone
+                log(f"Phone: {output['msisdn']}")
+            
+            # Usage
+            usage = _extract_usage_from_html(text) or _extract_usage_from_html(html)
+            if usage:
+                used_val_str, used_unit, total_val_str, total_unit = usage
+                log(f"Found usage: {used_val_str} {used_unit} / {total_val_str} {total_unit}")
+                output["_used_display"] = f"{used_val_str} {used_unit}"
+                output["_total_display"] = f"{total_val_str} {total_unit}"
+                used_gb, _ = _normalize_to_gb(used_val_str, used_unit)
+                total_gb, _ = _normalize_to_gb(total_val_str, total_unit)
+                output["used_gb"] = used_gb
+                output["total_gb"] = total_gb
+                output["left_gb"] = round(total_gb - used_gb, 4)
+                output["data_percent"] = round((used_gb / total_gb) * 100, 2) if total_gb > 0 else 0
+                output["status"] = "success"
+                log(f"Data: {used_gb:.4f}GB / {total_gb}GB ({output['data_percent']}%)")
+                return output
+            
+            log("Could not parse data usage from Selenium result")
+            return output
+        finally:
+            driver.quit()
+    except ImportError:
+        log("Selenium not installed")
+        output["status"] = "no_selenium"
+    except Exception as e:
+        log(f"Selenium error: {e}")
+        output["status"] = "selenium_error"
+        output["message"] = str(e)
+    
+    return output
+
+
+def get_du_usage_urllib():
+    """
+    Direct HTTP request to mydata.du.ae using Python's built-in urllib.
+    No browser, no dependencies. Works on any PC with internet access.
+    """
+    output = {
+        "hostname": platform.node(),
+        "msisdn": "",
+        "total_gb": 0,
+        "used_gb": 0,
+        "left_gb": 0,
+        "data_percent": 0,
+        "status": "failed",
+    }
+    
+    try:
+        log("Fetching mydata.du.ae via direct HTTP...")
+        req = urllib.request.Request("http://mydata.du.ae", headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        })
+        resp = urllib.request.urlopen(req, timeout=30)
+        html = resp.read().decode("utf-8", errors="replace")
+        log(f"Loaded: {len(html)} chars, status {resp.status}")
+        debug(f"HTML: {html[:800]}")
+        
+        # Phone number
+        extracted_phone = _extract_phone(html)
+        if extracted_phone:
+            output["msisdn"] = extracted_phone
+            log(f"Phone: {output['msisdn']}")
+        
+        # Extract usage
+        usage = _extract_usage_from_html(html)
+        if usage:
+            used_val_str, used_unit, total_val_str, total_unit = usage
+            log(f"Found usage: {used_val_str} {used_unit} / {total_val_str} {total_unit}")
+            output["_used_display"] = f"{used_val_str} {used_unit}"
+            output["_total_display"] = f"{total_val_str} {total_unit}"
+            used_gb, _ = _normalize_to_gb(used_val_str, used_unit)
+            total_gb, _ = _normalize_to_gb(total_val_str, total_unit)
+            output["used_gb"] = used_gb
+            output["total_gb"] = total_gb
+            output["left_gb"] = round(total_gb - used_gb, 4)
+            output["data_percent"] = round((used_gb / total_gb) * 100, 2) if total_gb > 0 else 0
+            output["status"] = "success"
+            log(f"Data: {used_gb:.4f}GB / {total_gb}GB ({output['data_percent']}%)")
+            return output
+        
+        # Fallback percentage
+        log("Usage pattern not found via HTTP...")
+        pct_match = re.search(r"(\d+[\.,]?\d*)\s*%", html)
+        all_gb = re.findall(r"(\d+[\.,]?\d*)\s*(?:[Gg][Bb])", html)
+        if pct_match and all_gb:
+            output["data_percent"] = float(pct_match.group(1).replace(",", "."))
+            output["total_gb"] = float(all_gb[-1].replace(",", ""))
+            output["used_gb"] = round(output["total_gb"] * output["data_percent"] / 100, 4)
+            output["left_gb"] = round(output["total_gb"] - output["used_gb"], 4)
+            output["status"] = "success"
+            log(f"Data (from %): {output['used_gb']}GB / {output['total_gb']}GB ({output['data_percent']}%)")
+            return output
+        
+        log("Could not parse data usage from HTTP response")
+        return output
+    
+    except urllib.error.HTTPError as e:
+        log(f"HTTP Error {e.code}: {e.reason}")
+        output["status"] = "http_error"
+        output["message"] = str(e)
+    except urllib.error.URLError as e:
+        log(f"URL Error: {e.reason}")
+        output["status"] = "network_error"
+        output["message"] = str(e.reason)
+    except Exception as e:
+        log(f"HTTP fetch error: {e}")
+        output["status"] = "http_failed"
+        output["message"] = str(e)
+    
+    return output
+
+
 def get_du_usage_with_edge():
     """
     Use Microsoft Edge (msedgedriver) in headless mode to scrape mydata.du.ae.
@@ -492,21 +669,29 @@ def main():
         sys.exit(1)
     log(f"Found: {computer_name} (ID: {computer_id})")
     
-    # Step 3: Scrape DU with Edge (fallback to Playwright)
+    # Step 3: Scrape DU portal — try HTTP, Selenium, Edge headless, Playwright
     log("Scraping DU portal...")
-    du_data = get_du_usage_with_edge()
-    
-    if du_data["status"] in ("success", "partial"):
-        log(f"Edge result: {du_data['used_gb']}GB / {du_data['total_gb']}GB ({du_data['data_percent']}%)")
+    du_data = get_du_usage_urllib()
     
     if du_data["status"] != "success":
-        # Edge didn't work, try Playwright as fallback
+        log(f"HTTP direct failed ({du_data['status']}), trying Selenium Edge...")
+        du_data = get_du_usage_selenium()
+        if du_data["status"] == "success":
+            log(f"Selenium result: {du_data['used_gb']}GB / {du_data['total_gb']}GB ({du_data['data_percent']}%)")
+    
+    if du_data["status"] != "success":
+        log(f"Selenium failed ({du_data['status']}), trying Edge headless dump-dom...")
+        du_data = get_du_usage_with_edge()
+        if du_data["status"] == "success":
+            log(f"Edge result: {du_data['used_gb']}GB / {du_data['total_gb']}GB ({du_data['data_percent']}%)")
+    
+    if du_data["status"] != "success":
         log("Edge failed, trying Playwright fallback...")
         du_data = get_du_usage_playwright()
         if du_data["status"] == "success":
             log(f"Playwright result: {du_data['used_gb']}GB / {du_data['total_gb']}GB")
         else:
-            log(f"Both Edge and Playwright failed: {du_data['status']}")
+            log(f"All methods failed: {du_data['status']}")
     
     # Determine comment based on failure reason
     comment = ""
